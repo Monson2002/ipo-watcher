@@ -81,6 +81,52 @@ def _get_with_retries(url, params=None):
     raise last_exc
 
 
+def _post_with_retries(url, data):
+    last_exc = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            resp = requests.post(
+                url,
+                data=data,
+                headers={
+                    "User-Agent": USER_AGENT,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+                timeout=TIMEOUT,
+            )
+            resp.raise_for_status()
+            return resp.text
+        except requests.RequestException as exc:
+            last_exc = exc
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_SLEEP_SECONDS)
+    raise last_exc
+
+
 def fetch_listing_page(page_no=1):
     """Fetch raw HTML for one 1-indexed page of SEBI's Public Issues listing."""
-    return _get_with_retries(LISTING_URL, params={"doListing": "yes", **SECTION_PARAMS})
+    if page_no == 1:
+        return _get_with_retries(LISTING_URL, params={"doListing": "yes", **SECTION_PARAMS})
+    n = str(page_no - 1)
+    data = {
+        "nextValue": n,
+        "next": "n",
+        "search": "",
+        "fromDate": "",
+        "toDate": "",
+        "fromYear": "",
+        "toYear": "",
+        "deptId": "",
+        "sid": SECTION_PARAMS["sid"],
+        "ssid": SECTION_PARAMS["ssid"],
+        "smid": SECTION_PARAMS["smid"],
+        "ssidhidden": SECTION_PARAMS["ssid"],
+        "intmid": "-1",
+        "sText": "Filings",
+        "ssText": "Public Issues",
+        "smText": "",
+        "doDirect": n,
+    }
+    raw = _post_with_retries(PAGINATE_URL, data)
+    return raw.split("#@#")[0]
