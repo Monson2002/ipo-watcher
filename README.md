@@ -16,6 +16,11 @@ and emails an alert when a new one appears.
 Check `logs/ipo_watcher.log` for what happened, `data/ipo_watcher.db` for
 stored filings, and `data/pdfs/` for downloaded documents.
 
+The very first run against an empty database will discover SEBI's entire
+recent Public Issues filing history (potentially hundreds of filings and
+several GB of PDFs) and may take a while. Subsequent runs are fast since
+only new filings are processed.
+
 ## Schedule with cron
 
     crontab -e

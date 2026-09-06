@@ -1,7 +1,10 @@
+import logging
 import smtplib
 from email.message import EmailMessage
 
 from . import config
+
+log = logging.getLogger("ipo_watcher.notifier")
 
 
 def build_email_subject(rows):
@@ -39,5 +42,6 @@ def send_alert(rows):
             smtp.login(config.SMTP_USER, config.SMTP_PASSWORD)
             smtp.send_message(msg)
         return True
-    except (smtplib.SMTPException, OSError):
+    except (smtplib.SMTPException, OSError) as exc:
+        log.warning("SMTP send failed: %s", exc)
         return False

@@ -42,6 +42,26 @@ def test_discover_download_and_alert_end_to_end(tmp_path, monkeypatch):
     conn.close()
 
 
+def test_discover_new_filings_skips_detail_fetch_for_known_rows(tmp_path):
+    conn = db.connect(str(tmp_path / "test3.db"))
+    db.init_db(conn)
+
+    with patch(
+        "ipo_watcher.run.sebi_source.fetch_listing_page",
+        side_effect=[ONE_ROW_LISTING, EMPTY_LISTING, ONE_ROW_LISTING],
+    ), patch(
+        "ipo_watcher.run.sebi_source.fetch_detail_page", return_value=DETAIL_HTML
+    ) as mock_detail:
+        run.discover_new_filings(conn)  # first run: row is new, page 2 is empty -> stop
+        run.discover_new_filings(conn)  # second run: same row, already known -> no page 2 fetch
+
+    filings = conn.execute("SELECT * FROM filings").fetchall()
+    assert len(filings) == 1
+    mock_detail.assert_called_once()
+
+    conn.close()
+
+
 def test_send_pending_alert_does_not_mark_notified_on_send_failure(tmp_path):
     conn = db.connect(str(tmp_path / "test2.db"))
     db.init_db(conn)
