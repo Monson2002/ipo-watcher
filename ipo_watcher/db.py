@@ -3,6 +3,8 @@ import sqlite3
 import hashlib
 import datetime
 
+from . import config
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS companies (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +43,7 @@ def init_db(conn):
 
 
 def _now_iso():
-    return datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return datetime.datetime.now(config.IST).isoformat(timespec="seconds")
 
 
 def _compute_dedup_key(company_name, filing_type, filing_date, document_url):
