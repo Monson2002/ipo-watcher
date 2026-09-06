@@ -74,3 +74,31 @@ def test_fetch_listing_page_2_posts_to_ajax_endpoint_and_strips_delimiter():
     assert kwargs["data"]["nextValue"] == "1"
     assert kwargs["data"]["doDirect"] == "1"
     assert kwargs["data"]["next"] == "n"
+
+
+JIO_DETAIL_FIXTURE = """
+<h1>Jio Platforms Ltd - DRHP<br><a href= 'https://www.sebi.gov.in/sebi_data/commondocs/jun-2026/Jio%20Platforms%20Ltd_p.PDF' style=color:#000000>Jio Platforms Ltd - Abridged Prospectus</a></h1>
+<iframe src='../../../web/?file=https://www.sebi.gov.in/sebi_data/attachdocs/jun-2026/1781870482419.PDF' width='100%' style='max-height:90%; height:600px;' allowfullscreen webkitallowfullscreen></iframe>
+"""
+
+LCC_DETAIL_FIXTURE = """
+<h1>LCC PROJECTS LIMITED - RHP <br><a href= 'https://www.sebi.gov.in/sebi_data/commondocs/sep-2026/LCC%20PROJECTS%20LIMITED%20-%20AP_p.pdf' style=color:#000000>LCC PROJECTS LIMITED - Abridged Prospectus</a></h1>
+<iframe src='../../../web/?file=https://www.sebi.gov.in/sebi_data/attachdocs/sep-2026/1788524729720.pdf' width='100%' style='max-height:90%; height:600px;' allowfullscreen webkitallowfullscreen></iframe>
+"""
+
+
+def test_parse_detail_extracts_iframe_pdf_not_abridged_prospectus():
+    from ipo_watcher.sebi_source import parse_detail
+
+    assert parse_detail(JIO_DETAIL_FIXTURE) == (
+        "https://www.sebi.gov.in/sebi_data/attachdocs/jun-2026/1781870482419.PDF"
+    )
+    assert parse_detail(LCC_DETAIL_FIXTURE) == (
+        "https://www.sebi.gov.in/sebi_data/attachdocs/sep-2026/1788524729720.pdf"
+    )
+
+
+def test_parse_detail_returns_none_when_no_iframe():
+    from ipo_watcher.sebi_source import parse_detail
+
+    assert parse_detail("<html><body>no viewer here</body></html>") is None
