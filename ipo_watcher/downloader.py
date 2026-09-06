@@ -50,4 +50,10 @@ def download_pdf(document_url, dest_path):
                 os.remove(tmp_path)
             if attempt < MAX_RETRIES:
                 time.sleep(RETRY_SLEEP_SECONDS)
+        except OSError:
+            # Not a network hiccup (e.g. disk full) - don't retry, but don't
+            # leave a partial .tmp file behind either.
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
     raise last_exc

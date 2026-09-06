@@ -1,7 +1,7 @@
 [project]
 name = "ipo-watcher"
 version = "0.1.0"
-description = "Add your description here"
+description = "Watches SEBI public-issue filings and emails alerts on new ones"
 requires-python = ">=3.12"
 dependencies = [
     "python-dotenv==1.0.1",
@@ -12,3 +12,6 @@ dependencies = [
 dev = [
     "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

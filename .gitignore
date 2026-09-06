@@ -5,3 +5,18 @@ __pycache__/
 *.pyc
 .venv/
 *.egg-info/
+.pytest_cache/
+
+# personal/sandbox dotfiles, not part of this project
+.bashrc
+.bash_profile
+.claude/
+.gitconfig
+.gitmodules
+.idea
+.mcp.json
+.profile
+.ripgreprc
+.vscode
+.zprofile
+.zshrc
