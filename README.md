@@ -20,7 +20,14 @@ stored filings, and `data/pdfs/` for downloaded documents.
 
     crontab -e
 
-Add (checks a few times a day during business hours — SEBI filings aren't
-high-frequency, no need to poll hourly):
+Add (runs Mon/Wed/Fri at 9:00 AM IST — set `CRON_TZ` if the machine running
+cron isn't already on IST; not all cron implementations honor `CRON_TZ`, so
+adjust the hour to your box's local-time equivalent of 9 AM IST if not):
 
-    0 8,10,12,14,16,18,20 * * * cd /path/to/ipo-watcher && /path/to/.venv/bin/python -m ipo_watcher.run >> logs/cron.log 2>&1
+    CRON_TZ=Asia/Kolkata
+    0 9 * * 1,3,5 cd /path/to/ipo-watcher && /path/to/.venv/bin/python -m ipo_watcher.run >> logs/cron.log 2>&1
+
+(Cron day-of-week: 1=Mon, 3=Wed, 5=Fri.)
+
+This isn't installed anywhere yet — install it on whichever server actually
+hosts this long-term (not a throwaway/dev session), once deployed.

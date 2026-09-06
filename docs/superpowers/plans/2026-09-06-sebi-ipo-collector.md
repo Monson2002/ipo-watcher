@@ -16,6 +16,7 @@
 - Storage: SQLite file (`data/ipo_watcher.db`) + local disk (`data/pdfs/`). No DB server process.
 - Alerts: email via stdlib `smtplib` only. No third-party mail library.
 - Dependencies limited to: `requests`, `python-dotenv`. No `beautifulsoup4` (see Task 2 rationale), no `playwright` (SEBI's listing is confirmed server-rendered HTML, no JS execution needed), no ORM, no retry/backoff library (a manual retry loop suffices), no `pydantic`/`click`/`typer`.
+- Package management: `uv` + `pyproject.toml`, not `pip`/`requirements.txt`. Install with `uv sync`, run anything with `uv run <cmd>` (e.g. `uv run pytest`, `uv run python -m ipo_watcher.run`). Every `pytest ...`/`python ...` invocation elsewhere in this plan means "inside the project's `uv`-managed environment."
 - Out of scope entirely for this plan: PDF financial-metric extraction, IPO scoring/recommendation, GMP/market-price data. Only filing discovery + PDF download + email alert.
 - No automated test may hit the live SEBI site — all `sebi_source.py` tests run against embedded fixture strings captured from real pages (see Task 2-4).
 - Tests use stdlib `unittest`/`pytest` + `unittest.mock` only — no `requests_mock`/`responses` dependency.
@@ -57,7 +58,8 @@ The detail page also separately links a shorter "Abridged Prospectus" PDF under 
 ipo-watcher/
 ├── .env.example
 ├── .gitignore
-├── requirements.txt
+├── pyproject.toml
+├── uv.lock
 ├── README.md
 ├── ipo_watcher/
 │   ├── __init__.py
@@ -82,7 +84,7 @@ ipo-watcher/
 ### Task 1: Project scaffold + SQLite persistence (`db.py`)
 
 **Files:**
-- Create: `requirements.txt`, `.env.example`, `.gitignore`
+- Create: `pyproject.toml`, `.env.example`, `.gitignore`
 - Create: `ipo_watcher/__init__.py` (empty), `ipo_watcher/config.py`, `ipo_watcher/db.py`
 - Test: `tests/test_db.py`
 
@@ -92,11 +94,15 @@ ipo-watcher/
 
 - [ ] **Step 1: Scaffold the repo**
 
+Use `uv` to create `pyproject.toml` and add dependencies (this also creates `.venv/` and `uv.lock`):
+
+```bash
+uv init --no-readme --name ipo-watcher --python 3.12
+uv add requests==2.32.3 python-dotenv==1.0.1
+uv add --dev pytest
 ```
-requirements.txt:
-requests==2.32.3
-python-dotenv==1.0.1
-```
+
+(If `uv init` scaffolds its own placeholder `main.py`/`README.md`, delete them — this project's entrypoint is `ipo_watcher/run.py`, added in Task 7.)
 
 ```
 .env.example:
@@ -416,7 +422,7 @@ Expected: PASS (6 tests total).
 - [ ] **Step 13: Commit**
 
 ```bash
-git init -q 2>/dev/null; git add requirements.txt .env.example .gitignore ipo_watcher/__init__.py ipo_watcher/config.py ipo_watcher/db.py tests/test_db.py
+git add pyproject.toml uv.lock .env.example .gitignore ipo_watcher/__init__.py ipo_watcher/config.py ipo_watcher/db.py tests/test_db.py
 git commit -m "feat: scaffold project + SQLite persistence layer"
 ```
 
@@ -1369,15 +1375,13 @@ and emails an alert when a new one appears.
 
 ## Setup
 
-    python3 -m venv .venv
-    source .venv/bin/activate
-    pip install -r requirements.txt
+    uv sync
     cp .env.example .env
     # edit .env with your SMTP credentials (a Gmail app password works)
 
 ## Run once
 
-    python -m ipo_watcher.run
+    uv run python -m ipo_watcher.run
 
 Check `logs/ipo_watcher.log` for what happened, `data/ipo_watcher.db` for
 stored filings, and `data/pdfs/` for downloaded documents.
@@ -1386,17 +1390,24 @@ stored filings, and `data/pdfs/` for downloaded documents.
 
     crontab -e
 
-Add (checks a few times a day during business hours — SEBI filings aren't
-high-frequency, no need to poll hourly):
+Add (runs Mon/Wed/Fri at 9:00 AM IST — set `CRON_TZ` if the machine running
+cron isn't already on IST; not all cron implementations honor `CRON_TZ`, so
+adjust the hour to your box's local-time equivalent of 9 AM IST if not):
 
-    0 8,10,12,14,16,18,20 * * * cd /path/to/ipo-watcher && /path/to/.venv/bin/python -m ipo_watcher.run >> logs/cron.log 2>&1
+    CRON_TZ=Asia/Kolkata
+    0 9 * * 1,3,5 cd /path/to/ipo-watcher && /path/to/.venv/bin/python -m ipo_watcher.run >> logs/cron.log 2>&1
+
+(Cron day-of-week: 1=Mon, 3=Wed, 5=Fri.)
+
+This isn't installed anywhere yet — install it on whichever server actually
+hosts this long-term (not a throwaway/dev session), once deployed.
 ```
 
 - [ ] **Step 2: Manual smoke test — real run #1**
 
 ```bash
 cp .env.example .env   # fill in real SMTP creds before this step
-python -m ipo_watcher.run
+uv run python -m ipo_watcher.run
 ```
 
 Expected: `logs/ipo_watcher.log` shows filings parsed and no unhandled exception; `data/ipo_watcher.db` has rows in `filings`/`companies`; `data/pdfs/` has downloaded PDF files; one email arrives listing the filings found.
@@ -1404,14 +1415,14 @@ Expected: `logs/ipo_watcher.log` shows filings parsed and no unhandled exception
 - [ ] **Step 3: Manual smoke test — real run #2 (idempotency check)**
 
 ```bash
-python -m ipo_watcher.run
+uv run python -m ipo_watcher.run
 ```
 
 Expected: no new rows in `filings` (same count as after run #1), no second email sent — confirms `dedup_key` correctly prevents re-alerting on unchanged SEBI listings.
 
-- [ ] **Step 4: Install the cron line and confirm one real scheduled run**
+- [ ] **Step 4: Install the cron line on the actual deployment target (deferred)**
 
-Add the crontab line from `README.md` (adjusted to the real absolute paths), wait for the next scheduled time, then check `logs/cron.log` shows a run occurred with no errors.
+Not done in a dev/sandbox session — install the crontab line from `README.md` (adjusted to the real absolute paths, including the `.venv` path `uv sync` creates) once this is deployed to wherever it will actually run long-term (e.g. the free server the user plans to host on). Wait for the next scheduled time (Mon/Wed/Fri 9 AM IST), then check `logs/cron.log` shows a run occurred with no errors.
 
 - [ ] **Step 5: Commit**
 
@@ -1424,7 +1435,7 @@ git commit -m "docs: setup, manual smoke test, and cron instructions"
 
 ## Verification (whole plan)
 
-- `pytest tests/ -v` passes all 22 tests with zero live network calls.
-- Manual run #1 against the real SEBI site produces DB rows, downloaded PDFs, and exactly one email.
-- Manual run #2 immediately after produces zero new rows and zero emails (idempotency).
-- A cron-triggered run (Task 8, Step 4) is observed succeeding via `logs/cron.log`.
+- `uv run pytest tests/ -v` passes all 22 tests with zero live network calls.
+- Manual run #1 against the real SEBI site produces DB rows, downloaded PDFs, and exactly one email — left to the user to run themselves (needs their real SMTP credentials).
+- Manual run #2 immediately after produces zero new rows and zero emails (idempotency) — also left to the user.
+- A cron-triggered run (Task 8, Step 4) is deferred until deployment to the actual hosting target and is not part of this session's verification.
