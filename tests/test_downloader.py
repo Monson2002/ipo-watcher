@@ -1,7 +1,6 @@
 import hashlib
 import os
 from unittest.mock import patch, MagicMock
-import tempfile
 
 from ipo_watcher import downloader
 
