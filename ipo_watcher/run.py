@@ -1,3 +1,4 @@
+import datetime
 import logging
 import logging.handlers
 import os
@@ -10,12 +11,20 @@ REQUEST_DELAY_SECONDS = 0.5  # courtesy delay between outbound requests
 log = logging.getLogger("ipo_watcher.run")
 
 
+class _ISTFormatter(logging.Formatter):
+    """Renders log timestamps in IST regardless of the machine's local timezone."""
+
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.datetime.fromtimestamp(record.created, tz=config.IST)
+        return dt.isoformat(timespec="seconds")
+
+
 def setup_logging():
     os.makedirs(os.path.dirname(config.LOG_PATH) or ".", exist_ok=True)
     handler = logging.handlers.RotatingFileHandler(
         config.LOG_PATH, maxBytes=5 * 1024 * 1024, backupCount=3
     )
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    handler.setFormatter(_ISTFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     root.addHandler(handler)
