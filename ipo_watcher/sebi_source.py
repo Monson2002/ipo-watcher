@@ -130,3 +130,22 @@ def fetch_listing_page(page_no=1):
     }
     raw = _post_with_retries(PAGINATE_URL, data)
     return raw.split("#@#")[0]
+
+
+DOC_IFRAME_RE = re.compile(
+    r"<iframe[^>]+src=['\"]\.\./\.\./\.\./web/\?file=(?P<url>[^'\"]+)['\"]",
+    re.IGNORECASE,
+)
+
+
+def fetch_detail_page(source_page_url):
+    return _get_with_retries(source_page_url)
+
+
+def parse_detail(html):
+    """Extract the full DRHP/RHP PDF URL embedded via the detail page's
+    iframe viewer. Deliberately ignores the separate Abridged Prospectus
+    link that also appears on this page (see plan doc: out of scope).
+    Returns None if no iframe is found."""
+    m = DOC_IFRAME_RE.search(html)
+    return m.group("url") if m else None
