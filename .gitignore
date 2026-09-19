@@ -20,3 +20,5 @@ __pycache__/
 .vscode
 .zprofile
 .zshrc
+research/ipo-scoring-validation/data/
+**/.ipynb_checkpoints/
