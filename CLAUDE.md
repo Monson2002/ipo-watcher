@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git
+
+`git add` is as far as Claude goes in this repo. Never run `git commit` or `git push` — stage changes and stop there; the user commits and pushes themselves.
+
 ## Commands
 
 This project uses `uv`, not `pip`/`requirements.txt` — never add or restore a `requirements.txt`.
