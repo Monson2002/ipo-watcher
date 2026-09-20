@@ -269,6 +269,54 @@ def gmp_missingness_check(df):
             print("  Sector x GMP-availability: skipped (sparse crosstab)")
 
 
+MIN_SLICE_N = 15  # below this, a correlation estimate is too unstable to report
+
+
+def _univariate_gmp_check(pair, label):
+    """pair: two columns, [GMP %, target]. Prints Pearson r + a 2-parameter
+    OLS (intercept + GMP %) - the full 8-predictor Model 3 needs far more
+    rows than any of these subgroups have."""
+    n = len(pair)
+    if n < MIN_SLICE_N:
+        print(f"  {label}: n={n}, too few rows")
+        return
+    r, p = pearsonr(pair.iloc[:, 0], pair.iloc[:, 1])
+    ols = sm.OLS(pair.iloc[:, 1], sm.add_constant(pair.iloc[:, 0])).fit()
+    slope, slope_p = ols.params.iloc[1], ols.pvalues.iloc[1]
+    print(f"  {label}: n={n}, pearson_r={r:.3f}, GMP% slope={slope:.3f} (p={slope_p:.4f})")
+
+
+def robustness_sweep(df, target="Listing Gain"):
+    """Does the core GMP % -> target relationship Model 3 rests on hold up
+    across time period / sector / IPO size, or only in aggregate? Checks
+    the univariate relationship per subgroup, not the full multi-feature
+    model - none of these subgroups are close to the ~80+ rows the full
+    8-predictor Model 3 would need to fit meaningfully. Market regime is
+    NOT checked here - this dataset has no market-index data (e.g. NIFTY)
+    to derive bull/neutral/weak periods from; faking a proxy from
+    list_year would just duplicate the time-period slice below while
+    implying regime was accounted for when it wasn't - see FINDINGS.md."""
+    base = df[FUNDAMENTALS + MARKET_SENTIMENT + [target, "list_year", "Sector", "Offer Price"]].dropna(
+        subset=FUNDAMENTALS + MARKET_SENTIMENT + [target]
+    )
+    print(f"\n{'=' * 70}\nROBUSTNESS SWEEP: Model 3's GMP % relationship -> {target} (n={len(base)})\n{'=' * 70}")
+    print("(market regime not checked - no market-index data in this dataset)")
+
+    print("\n-- by year --")
+    for year, group in base.groupby("list_year"):
+        _univariate_gmp_check(group[["GMP %", target]], str(year))
+
+    print("\n-- by sector --")
+    for sector, group in base.groupby("Sector"):
+        _univariate_gmp_check(group[["GMP %", target]], sector)
+
+    print("\n-- by IPO size (Offer Price tercile, no total-issue-size column available) --")
+    base = base.copy()
+    base["offer_price_tercile"] = pd.qcut(base["Offer Price"], 3, labels=["small", "mid", "large"])
+    for tercile, group in base.groupby("offer_price_tercile"):
+        _univariate_gmp_check(group[["GMP %", target]], tercile)
+
+
 def main():
     df = pd.read_csv(DATASET, parse_dates=["List Date"])
     df = add_derived_columns(df)
@@ -294,11 +342,18 @@ def main():
 
         matched_sample_comparison(df, target)
 
+    # Model 3 beat Model 4 under both CV metrics in the model hierarchy
+    # above - check regularization against it too, not just Model 4, before
+    # treating either as the leading spec (see FINDINGS.md).
+    compare_regularization(df, FUNDAMENTALS + MARKET_SENTIMENT, "Model 3", "Listing Gain")
+
     matched_idx = df[FUNDAMENTALS + DEMAND_TOTAL + MARKET_SENTIMENT + ["Listing Gain"]].dropna().index
     compare_regularization(
         df, FUNDAMENTALS + DEMAND_TOTAL + MARKET_SENTIMENT,
         "Model 4, matched sample", "Listing Gain", restrict_index=matched_idx,
     )
+
+    robustness_sweep(df)
 
 
 if __name__ == "__main__":

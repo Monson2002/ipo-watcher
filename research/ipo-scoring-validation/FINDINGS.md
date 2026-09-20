@@ -141,47 +141,99 @@ specifications at the 24-month horizon (n=51), but small-sample and not
 corroborated by an out-of-sample result (every 24-month model's time-based
 R² is negative). Revisit with more data before acting on it.
 
-## Regularization, tuned: Ridge/ElasticNet still beat OLS out-of-sample
+## Regularization, tuned: Ridge/ElasticNet still beat OLS — and now checked against Model 3 too
 
-On Model 4 (matched sample, n=123), same time-based folds.
-`RidgeCV`/`ElasticNetCV` each pick their own alpha (and l1_ratio, for
-ElasticNet) via their own internal CV, fit only on the training portion of
-each outer time-based fold — no leakage from the outer test fold:
+Same time-based folds, `RidgeCV`/`ElasticNetCV` each picking their own
+alpha (and l1_ratio, for ElasticNet) via their own internal CV, fit only
+on the training portion of each outer fold — no leakage from the outer
+test fold. Now run against **both** leading specs, not just Model 4:
 
-| Estimator | Time-based CV R² | MAE | RMSE |
+| Estimator | Model 3 (n=131) | Model 4, matched (n=123) |
+|---|---|---|
+| OLS | R²=0.190, MAE=15.85, RMSE=21.24 | R²=0.150, MAE=17.69, RMSE=22.94 |
+| RidgeCV (tuned) | **R²=0.499**, MAE=12.82, RMSE=17.05 | R²=0.464, MAE=14.50, RMSE=18.97 |
+| ElasticNetCV (tuned) | R²=0.506, **MAE=12.45, RMSE=16.85** | **R²=0.522**, MAE=13.95, RMSE=18.43 |
+
+**This tips the Model 3 vs. Model 4 question toward Model 3**: it wins on
+OLS, wins on RidgeCV, and wins on MAE/RMSE for *both* regularized
+estimators — the one number where Model 4 comes out ahead is
+ElasticNetCV's R² specifically (0.522 vs 0.506), a thin margin against
+three other metrics pointing the other way, on top of Model 3 already
+using more data (131 vs 123 rows) since it doesn't need `Total Sub`.
+
+The untuned first pass (fixed `alpha=1.0`) had understated Ridge
+specifically — tuned Ridge picks alpha=5.6–10 (Model 3) or 10–17.8
+(Model 4), well above the arbitrary default of 1.0. Both regularized
+variants still clearly beat plain OLS on both specs, confirming OLS is
+overfitting a bit at this sample size rather than the earlier untuned
+numbers being a fluke of a lucky default.
+
+One caveat worth flagging on both specs: ElasticNetCV's *l1_ratio* choice
+is unstable across folds (ranges from 0.1 to 1.0 — plain Ridge-like to
+pure Lasso — depending on the fold), which usually signals the training
+folds are too small/different from each other for the inner tuning CV to
+settle on a consistent regularization type. Treat the R²≈0.5 numbers as
+"regularization clearly helps here," not as "this exact configuration is
+the answer."
+
+## Robustness sweep: the GMP % relationship holds up well across subgroups
+
+Checked whether Model 3's core `GMP %` → Listing Gain relationship is an
+aggregate artifact or genuinely holds across time, sector, and IPO size.
+The full 8-predictor Model 3 needs far more rows than any subgroup has
+(~10 rows/predictor → ~80+ needed), so this checks the **univariate**
+relationship (Pearson r + a 2-parameter OLS: intercept + GMP %) per
+subgroup instead — the core signal the full model rests on. Subgroups
+under n=15 are reported as "too few rows," not given a misleadingly
+precise number:
+
+| Slice | n | Pearson r | GMP % slope (p) |
 |---|---|---|---|
-| OLS | 0.150 | 17.69 | 22.94 |
-| RidgeCV (tuned) | 0.464 | 14.50 | 18.97 |
-| ElasticNetCV (tuned) | **0.522** | **13.95** | **18.43** |
+| **By year** — 2024 | 85 | 0.820 | 1.035 (p<0.001) |
+| 2025 | 33 | 0.866 | 1.117 (p<0.001) |
+| 2026 | 13 | — | too few rows |
+| **By sector** — Industrials | 22 | 0.875 | 1.151 (p<0.001) |
+| Energy | 19 | 0.861 | 0.857 (p<0.001) |
+| Other | 24 | 0.854 | 0.999 (p<0.001) |
+| Consumer Discretionary | 18 | 0.742 | 0.559 (p<0.001) |
+| Financials/Healthcare/Materials/Real Estate/Technology | 3–14 each | — | too few rows |
+| **By Offer Price tercile** — small | 44 | 0.788 | 1.071 (p<0.001) |
+| mid | 43 | 0.892 | 1.187 (p<0.001) |
+| large | 44 | 0.841 | 0.845 (p<0.001) |
 
-The untuned first pass (fixed `alpha=1.0`) understated Ridge specifically —
-tuned Ridge nearly matches tuned ElasticNet (0.464 vs 0.522) once it's
-allowed to pick a real alpha (10–17.8 across folds, well above the
-arbitrary default of 1.0). Both regularized variants still clearly beat
-plain OLS, confirming OLS is overfitting a bit at this sample size (8
-predictors, ~123 rows) rather than the earlier untuned numbers being a
-fluke of a lucky default.
+**Every subgroup with enough data (n≥15) shows a strong, highly
+significant, positive GMP % relationship** — Pearson r ranges only
+0.74–0.89 across 10 different slices, and the OLS slope is positive and
+significant (p<0.001) in every one. This is real evidence the relationship
+isn't a fluke of the aggregate sample or concentrated in one sector/year/
+size band — it's consistent. Five sectors (Financials, Healthcare,
+Materials, Real Estate, Technology) had too few GMP-%-complete rows
+(3–14 each) to check at all; that's a genuine data gap, not a negative
+result.
 
-One caveat worth flagging: ElasticNetCV's *l1_ratio* choice is unstable
-across folds (0.1 on 3 folds, 1.0 — i.e. pure Lasso — on 2), which usually
-signals the training folds are too small/different from each other for
-the inner tuning CV to settle on a consistent regularization type. Treat
-the 0.522 R² as "regularization clearly helps here," not as "this exact
-ElasticNet configuration is the answer."
+**Market regime was not checked** — this dataset has no market-index data
+(e.g. NIFTY) to derive bull/neutral/weak periods from. Faking a proxy from
+`list_year` would just duplicate the time-period slice above while
+implying regime was accounted for when it wasn't. A real check needs an
+external market-index series merged in by `List Date`.
 
 ## Recommendations, updated for rev. 3
 
-1. **Don't freeze Model 4 (fundamentals + Total Sub + GMP %) as "the"
-   Listing Gain spec.** Model 3 (fundamentals + GMP %, no Total Sub) is the
-   better-performing spec under the primary time-based metric; the two are
-   close enough (0.190 vs 0.150) that this should be treated as an open
-   question, not settled, especially given how wide the CV fold ranges are
-   at this sample size.
-2. **GMP % + Total Sub is a leading candidate, not a validated production
-   formula.** It clears matched-sample validation (helps on the same rows)
-   but its absolute out-of-sample performance is much more modest than
-   rev. 2 reported (R²≈0.15–0.19, not 0.327), and the true generalization
-   estimate is noisy with this few time-ordered folds.
+1. **Model 3 (fundamentals + GMP %, no Total Sub) is the more consistently
+   supported spec, not Model 4.** It wins on every metric checked except
+   ElasticNetCV's R² specifically (by a thin margin) — OLS, RidgeCV, and
+   MAE/RMSE for both regularized estimators all favor Model 3, and it uses
+   more data (131 vs. 123 rows) since it doesn't need `Total Sub`. Not
+   airtight given how wide the CV fold ranges are at this sample size, but
+   `Total Sub` no longer looks like it's earning its place once GMP % is
+   in the model.
+2. **GMP % (alone, per #1) is a leading candidate, not a validated
+   production formula.** Its absolute out-of-sample performance is much
+   more modest than rev. 2 reported for the Total-Sub-included spec
+   (R²≈0.15–0.19 with OLS, not 0.327), and the true generalization
+   estimate is noisy with this few time-ordered folds — regularization
+   (#5) closes most of that gap, but isn't validated as a final model yet
+   either.
 3. **GMP availability is not random** — reported GMP % skews toward
    stronger, earlier-listed issues. Any claim about GMP %'s predictive
    power implicitly applies to that subpopulation, not to IPOs in general.
@@ -189,18 +241,19 @@ ElasticNet configuration is the answer."
    model at every longer horizon has negative time-based CV R², worse than
    rev. 2's random-fold estimate suggested.
 5. **Tuned regularization (RidgeCV/ElasticNetCV) clearly beats OLS
-   out-of-sample on Model 4** (R²≈0.46–0.52 vs OLS's 0.150) — but
-   ElasticNetCV's l1_ratio choice is unstable across folds, so treat this
-   as "regularization helps here," not as a validated production model.
-   Worth re-running once #1 (Model 3 vs 4) is resolved, since it was only
-   checked against Model 4 so far.
+   out-of-sample on both Model 3 and Model 4** (R²≈0.46–0.52 vs OLS's
+   0.15–0.19) — but ElasticNetCV's l1_ratio choice is unstable across
+   folds on both specs, so treat this as "regularization helps here," not
+   as a validated production model.
 6. **Always report time-based CV (or a real held-out future-IPO test),
    never random-fold CV alone** — the two disagree enough on this dataset
    (e.g. Model 3: 0.190 vs 0.581) that random-fold alone would have been
    actively misleading about how this would perform on genuinely future
    IPOs.
-7. **Not done in this pass, flagged as the natural follow-up**: a
-   robustness sweep (performance by time period, sector, IPO size, market
-   regime), and re-running the now-tuned regularization comparison against
-   Model 3 as well as Model 4. Both are more useful once a leading spec is
-   picked from #1 above, not before.
+7. **Robustness sweep: checked, holds up.** The GMP % → Listing Gain
+   relationship is consistently strong (r=0.74–0.89, p<0.001) across
+   every year/sector/size subgroup with enough data — not an aggregate
+   artifact. Five sectors had too few rows to check (a data gap, flagged
+   above) and market regime still isn't checked at all (no market-index
+   data in this dataset — the one item from the original review's list
+   that genuinely needs a new data source, not just more analysis).
