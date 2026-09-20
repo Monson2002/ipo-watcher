@@ -1,0 +1,203 @@
+# Listing Gain Scoring Formula — Design
+
+> Design doc for the scoring formula itself, not the live pipeline around it.
+> Scope explicitly excludes DB schema, wiring into `ipo_watcher`'s live
+> collector, and refresh cadence — see "Explicitly out of scope" below.
+
+## Context
+
+`research/ipo-scoring-validation/` (see `FINDINGS.md` rev. 3) spent three
+revisions validating which of the original design doc's four candidate
+parameters (fundamentals, GMP, subscription, sentiment) actually predict
+Listing Gain. The answer turned out simpler than the original 4-parameter
+idea assumed: **only `GMP %` is individually significant.** The 7
+fundamentals never reached significance in any tested spec (Model 1, and
+inside every combined model), and `Total Sub` — kept as a live candidate
+through most of rev. 3 — was shown in this design session to actively hurt
+performance once fundamentals stop gating the sample (R² drops from 0.650
+to 0.500 when Total Sub is added; see "Why GMP % alone" below).
+
+This doc turns that research conclusion into an actual formula: what it
+computes, what it needs live, and how it's presented. Nothing here is
+wired into the live collector yet — see the deferred-scope section.
+
+## The formula
+
+```
+predicted_listing_gain_% = -0.2206 + 1.0428 × GMP_%
+```
+
+Plain OLS, fit on all 147 historical IPOs with known `GMP %` (no
+fundamentals-completeness requirement — that was an artifact of
+`analyze.py`'s Model 3 spec including fundamentals as predictors even
+though they contributed nothing measurable).
+
+**Validation** (via `analyze.py`'s existing `regression()`/`_report_cv()`
+machinery — see `research/ipo-scoring-validation/FINDINGS.md` for the full
+methodology): time-based CV (`TimeSeriesSplit`, the project's established
+primary metric) gives **R²=0.650, MAE=12.26 percentage points, RMSE=16.55
+points** — the strongest validated out-of-sample result across every spec
+tested in this project.
+
+**Why GMP % alone**, not GMP % + Total Sub:
+
+| Spec | n | Time-based CV R² | MAE |
+|---|---|---|---|
+| GMP % alone | 147 | **0.650** | **12.26** |
+| GMP % + Total Sub | 139 | 0.500 | 15.32 |
+
+Total Sub was carried as a candidate "minor secondary factor" through most
+of this design session, but this exact 2-variable spec had never actually
+been tested until now (every prior spec either included fundamentals or
+was GMP-%-only with fundamentals still gating the row filter). Once tested
+on its own terms, adding Total Sub clearly hurts, not helps. Dropped.
+
+**A notable property, not a coincidence worth over-reading**: the
+intercept is ≈0 and the slope is ≈1 — `GMP %` is, on average, close to an
+*unbiased* predictor of actual Listing Gain, not merely correlated with
+it. This is a clean, explainable story ("the grey market premium is a
+reasonable estimate of what you'll actually get") but shouldn't be
+mistaken for more precision than the MAE (±12 points) actually supports.
+
+**No regularization applied.** Ridge/ElasticNet clearly beat OLS on the
+multi-predictor specs (Model 3, Model 4 — see `FINDINGS.md`) because they
+control multicollinearity/overfitting across *correlated* predictors.
+With a single predictor there's nothing to regularize against; plain OLS
+is simpler and equally defensible.
+`# ponytail: single-predictor OLS, no regularization — revisit only if a
+second validated feature is ever added back.`
+
+**Refit cadence**: not decided here — the coefficients above are a
+snapshot fit on the current 3-year dataset. Whether/how often to refit as
+more historical outcomes accumulate is deferred (see below).
+
+## Live data source: IPO Guru's free API
+
+Supplies `GMP %` per currently-tracked IPO — `GET /ipos` (optionally
+filtered by `status=open|upcoming|closed`), `X-API-KEY` header auth, free
+tier at 300 requests/day / 15/min, no credit card. Response includes both
+GMP and subscription fields per IPO Guru's docs, though only the `GMP %`
+field is needed given the decision above.
+
+**Unverified — must be confirmed with a real test call before this is
+treated as settled**, same caution the original Phase 2 ideation doc gave
+for parse.bot/Upstox: everything above comes from IPO Guru's own
+documentation page, not an actual authenticated request. Confirm before
+committing:
+- Exact field name/shape for GMP % in a real response (docs vs. reality).
+- API key issuance actually works (manually issued via email, per their
+  docs) and within a reasonable turnaround.
+- The 300/day free-tier limit is workable for however often the live
+  collector ends up polling (cadence is a deferred decision, but the
+  limit should be checked against whatever cadence gets chosen later).
+
+**Why this over the cloud alternatives already researched** (Apify's
+India IPO Tracker, parse.bot's InvestorGain API): both are paid cloud
+APIs; `CLAUDE.md` states this project uses no cloud services anywhere,
+by design. IPO Guru's free tier avoids that trade-off. A direct scrape
+(a new `gmp_source.py`, matching `sebi_source.py`'s existing pattern) was
+also considered and remains a fallback if IPO Guru's free API doesn't pan
+out under real testing.
+
+## Output presentation
+
+**A flat "±MAE" band was the original plan here and is wrong — resolved
+in this revision.** MAE (12.26pp) is an *average* magnitude of historical
+error, not a bound: it doesn't mean every prediction lands within ±12 of
+the truth, and presenting it with a "±" symbol reads exactly like a bound
+even though it isn't one.
+
+The actual out-of-sample error distribution (120 real historical
+predictions, `actual − predicted`, computed via the same `TimeSeriesSplit`
+folds `analyze.py` already uses) is asymmetric with a heavy right tail —
+consistent with the OLS residual diagnostics already on record (skew=0.76,
+kurtosis=8.2):
+
+| Percentile | Actual − Predicted |
+|---|---|
+| 5th | −21.9 |
+| 25th | −8.2 |
+| 50th (median) | −2.0 |
+| 75th | +10.3 |
+| 95th | +29.9 |
+| max overshoot | **+74.6** |
+| max undershoot | −37.6 |
+
+Real listing days blow past the GMP-implied prediction on the upside far
+more dramatically than they undershoot on the downside. So the output
+should present an **empirical, asymmetric interval** derived from this
+residual distribution (5th/95th percentile, refit alongside the formula
+itself), not a symmetric ± band:
+
+```
+Predicted Listing Gain: +18.4%
+Historically, actual outcomes for a similar prediction have ranged from
+about -4% to +48% (5th-95th percentile of past prediction errors) - the
+spread is NOT symmetric; big positive surprises are more common than big
+negative ones.
+Based on GMP % (grey market premium — an unofficial, informal indicator;
+not exchange-verified). This is a statistical estimate, not advice.
+```
+
+- This resolves the "flat ±MAE vs. proper interval" open question from
+  the previous revision of this doc in favor of the empirical/asymmetric
+  interval — it's not meaningfully harder to compute (already done above)
+  and a symmetric band would actively understate upside variance.
+- The disclaimer is not an optional extra — cheapest defensibility move
+  available for a published, GMP-derived number, matching the original
+  design doc's own reasoning for disclosing GMP's informal nature.
+- **When an IPO has no `GMP %` yet** (common before its bidding window
+  opens, or if IPO Guru simply hasn't picked it up) — say so plainly
+  ("GMP not yet available") rather than silently omitting the IPO or
+  showing a stale/blank number.
+
+## Explicitly out of scope (deferred to later, separate design passes)
+
+- **New DB schema** to store GMP snapshots (a `market_signals`-shaped
+  table was sketched in the original Phase 2 ideation doc, but its shape
+  should be revisited now that only one field — `GMP %` — is actually
+  needed, not four).
+- **Wiring the score into `ipo_watcher`'s live collector/email** — this
+  doc defines the formula and its data source, not how `run.py` calls it.
+- **When in an IPO's lifecycle to compute/refresh the score** — GMP moves
+  over time right up to listing day; compute once at filing discovery,
+  or re-check closer to listing? Needs its own decision, informed by
+  whatever the DB schema pass above settles on.
+- **Formula refit cadence** — retrain as new historical outcomes
+  accumulate, on what schedule, with what regression-testing against the
+  numbers in this doc.
+
+## What this spec asks to be implemented next
+
+Concrete, buildable now, without waiting on the deferred DB/wiring
+decisions:
+
+1. **Formalize the GMP-%-only spec in `analyze.py`/`FINDINGS.md`** — it
+   currently only exists as an ad-hoc check run during this design
+   session, not as a committed, reproducible part of the model hierarchy.
+   Add it alongside Models 1–5 (as the actual best-performing spec) so
+   `uv run analyze.py` reproduces the numbers this doc cites.
+2. **A small, pure `predict_listing_gain(gmp_pct)` function** implementing
+   the frozen formula above, returning the point estimate plus the
+   empirical 5th/95th-percentile interval from the table above (not a
+   symmetric ±MAE band) — self-contained, no live data dependency, no DB,
+   easy to unit-test against the coefficients/percentiles in this doc.
+   This is the reusable piece a later wiring pass would actually call.
+3. **Verify IPO Guru's API with a real test call** (a manual/spike step,
+   not code) — request a key, confirm the `GMP %` field's real shape
+   matches what's assumed here, before any live-sourcing code gets built
+   against it.
+
+Everything else (DB schema, `run.py` wiring, refresh cadence, refit
+cadence) stays deferred per the section above.
+
+## Open questions for the next pass
+
+1. IPO Guru's free API needs an actual verified test call (see above) —
+   who does this, and what's the fallback if it doesn't check out
+   (direct scrape, per the fallback noted above)?
+2. This formula only ever targets **Listing Gain** — per `FINDINGS.md`,
+   every 6/12/24-month spec has negative time-based CV R² and shouldn't be
+   scored at all. Worth restating explicitly wherever this formula is
+   eventually surfaced, so nobody assumes it says anything about
+   medium-term returns.
