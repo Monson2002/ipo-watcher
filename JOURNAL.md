@@ -109,3 +109,67 @@ happened and why*, not the technical detail.
 - `ipo_watcher`'s 23 existing tests verified passing throughout,
   unaffected by any `research/` changes.
 - Started this journal.
+- Ran the tuned regularization comparison against Model 3 too
+  (it had only been checked against Model 4 so far). **This resolves the
+  Model 3 vs. Model 4 question from earlier today**: Model 3 (fundamentals
+  + GMP %, no Total Sub) wins on OLS, wins on RidgeCV, and wins on
+  MAE/RMSE for both regularized estimators, using more data besides (131
+  vs. 123 rows) — `Total Sub` doesn't look like it's earning its place
+  once GMP % is in the model. `FINDINGS.md` recommendations updated
+  accordingly; notebook and tests re-verified.
+- Robustness sweep on Model 3 (the last item flagged in `FINDINGS.md` rec.
+  #7): added `robustness_sweep()` checking the univariate GMP % → Listing
+  Gain relationship across year/sector/Offer-Price-tercile subgroups (the
+  full 8-predictor model needs far more rows than any subgroup has).
+  **Holds up well**: every subgroup with n≥15 shows r=0.74–0.89, p<0.001 —
+  not an aggregate artifact. Five sectors had too few GMP-complete rows to
+  check (a real data gap); market regime still isn't checked at all (no
+  market-index data in this dataset — flagged plainly, not glossed over).
+  `FINDINGS.md`/notebook/tests updated and re-verified.
+
+## 2026-09-20 — designing the actual Listing Gain scoring formula
+
+- Moving on to feature selection + weightage now that the
+  validation phase was done. Answer surfaced an important fact before
+  proceeding: in Model 3, **only `GMP %` is individually significant**
+  (p<0.05) — none of the 7 fundamentals are, and `Total Sub` had already
+  been shown to add no validated value. Went through `superpowers:
+  brainstorming` (classified architectural — a new subsystem, nothing
+  scoring-related exists in `ipo_watcher` yet) rather than just picking
+  weights informally, per `CLAUDE.md`'s explicit "no scoring logic without
+  a real design pass" constraint.
+- Scoped the design to *the formula + live GMP sourcing decision only* —
+  DB schema, wiring into the live collector, and refresh/refit cadence
+  stayed explicitly deferred (matching how `research/` was already
+  decoupled from the live collector).
+- **Mid-design pivot on Total Sub**: initially chose to keep it as a
+  minor, unvalidated secondary factor. Testing the exact "GMP % + Total
+  Sub, no fundamentals at all" spec for the first time (it had never
+  actually been run — every prior spec either included fundamentals or
+  gated the sample on their completeness) showed the opposite: GMP %
+  alone on its true natural sample (n=147, not 131) hits **time-based CV
+  R²=0.650** — the single strongest result of the whole project — while
+  adding Total Sub *drops* it to 0.500. Total Sub dropped for good;
+  formula is GMP %-only.
+- Frozen formula: `predicted_listing_gain_% = -0.2206 + 1.0428 × GMP_%`
+  (intercept ≈0, slope ≈1 — GMP % is close to an *unbiased* predictor of
+  actual listing gain, not just correlated with it).
+- Researched live GMP sourcing against `CLAUDE.md`'s "no cloud services"
+  constraint: ruled out Apify's IPO Tracker and parse.bot's InvestorGain
+  API (both paid cloud APIs) in favor of **IPO Guru's free API** (300
+  req/day, covers GMP — found only after specifically asking for a free
+  option), pending a real verification test call.
+- **Caught a real mistake before it shipped**: the design initially
+  presented uncertainty as "±12 percentage points" (the MAE). Asked
+  directly whether that meant a hard bound (e.g. +18.4% predicted → lists
+  between +6%/+30%) — it doesn't, and presenting MAE with a "±" symbol
+  was actively misleading. Pulled the real out-of-sample residual
+  distribution (120 historical CV predictions): heavily right-skewed
+  (5th percentile −21.9, 95th +29.9, max overshoot +74.6 vs. max
+  undershoot −37.6). Spec corrected to present an empirical, asymmetric
+  5th/95th-percentile interval instead of a symmetric ± band.
+- Wrote and staged
+  `docs/superpowers/specs/2026-09-20-listing-gain-scoring-formula-design.md`.
+  Haven't reviewed/approved it yet myself; implementation (the
+  `predict_listing_gain()` function, formalizing the GMP-%-only spec in
+  `analyze.py`) hasn't started.
