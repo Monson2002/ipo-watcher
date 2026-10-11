@@ -2,8 +2,11 @@
 
 Historical-dataset-first validation of the scoring params from
 `docs/superpowers/specs/2026-09-06-ipo-scoring-engine-design.md`. Findings
-are in `FINDINGS.md`. This directory is deliberately decoupled from the
-`ipo_watcher` package — nothing here is wired into the live collector.
+are in `FINDINGS.md`. This directory holds the validation work only — it
+has no `__init__.py` and isn't an importable package. The frozen formula
+this research produced now lives as live code at `ipo_watcher/scoring.py`
+and is wired into the email alert via `run.py`; this directory itself
+stays decoupled (nothing here is imported by `ipo_watcher`).
 
 ## Reproduce
 

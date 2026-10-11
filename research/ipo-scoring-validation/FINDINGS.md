@@ -32,8 +32,10 @@ via `analyze.py` — see `README.md` to reproduce.
   **Model 0** in `analyze.py` — previously it only existed as an ad-hoc
   check from the scoring-formula design session. `uv run analyze.py` now
   reproduces it directly (R²=0.650, MAE=12.26, RMSE=16.55 for Listing
-  Gain, n=147). The frozen formula itself now lives in `score.py`'s
-  `predict_listing_gain()` — see
+  Gain, n=147). The frozen formula itself was written here as `score.py`
+  and later moved into the live package as `ipo_watcher/scoring.py`'s
+  `predict_listing_gain()` once `run.py` actually wired it into the email
+  alert — see
   `docs/superpowers/specs/2026-09-20-listing-gain-scoring-formula-design.md`.
 
 ## Headline result, revised: time-based CV shows much weaker, noisier performance than rev. 2 reported
