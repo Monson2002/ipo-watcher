@@ -18,7 +18,7 @@ def test_init_db_creates_tables(conn):
         row["name"]
         for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
-    assert {"companies", "filings", "gmp_snapshots"} <= tables
+    assert {"companies", "filings", "gmp_snapshots", "gmp_notifications"} <= tables
 
 
 def test_record_and_get_latest_gmp_pct(conn):
@@ -63,6 +63,68 @@ def test_get_latest_gmp_pct_does_not_leak_between_companies(conn):
     db.record_gmp_snapshot(conn, company_b, gmp_pct=99.0)
     assert db.get_latest_gmp_pct(conn, company_a) == 10.0
     assert db.get_latest_gmp_pct(conn, company_b) == 99.0
+
+
+def test_record_gmp_snapshot_stores_close_date_and_is_listed(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=18.4, close_date="2026-10-20", is_listed=False)
+    assert db.get_latest_close_date(conn, company_id) == "2026-10-20"
+    assert db.get_latest_is_listed(conn, company_id) is False
+
+
+def test_get_latest_close_date_returns_none_with_no_snapshot(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    assert db.get_latest_close_date(conn, company_id) is None
+
+
+def test_get_latest_is_listed_returns_none_with_no_snapshot(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    assert db.get_latest_is_listed(conn, company_id) is None
+
+
+def test_get_latest_is_listed_distinguishes_false_from_no_data(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=10.0, is_listed=False)
+    assert db.get_latest_is_listed(conn, company_id) is False
+
+    company_id_2, _ = db._get_or_create_company(conn, "Gaurik Fashions Limited")
+    assert db.get_latest_is_listed(conn, company_id_2) is None
+
+
+def test_get_latest_is_listed_picks_most_recent_value(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=10.0, is_listed=False)
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=10.0, is_listed=True)
+    assert db.get_latest_is_listed(conn, company_id) is True
+
+
+def test_record_and_get_last_notified_gmp_pct(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    db.record_gmp_notification(conn, company_id, gmp_pct=12.0)
+    assert db.get_last_notified_gmp_pct(conn, company_id) == 12.0
+
+
+def test_get_last_notified_gmp_pct_returns_none_with_no_notification(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    assert db.get_last_notified_gmp_pct(conn, company_id) is None
+
+
+def test_get_last_notified_gmp_pct_picks_most_recent(conn, monkeypatch):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    monkeypatch.setattr(db, "_now_iso", lambda: "2026-10-11T10:00:00+05:30")
+    db.record_gmp_notification(conn, company_id, gmp_pct=10.0)
+    db.record_gmp_notification(conn, company_id, gmp_pct=18.0)
+    assert db.get_last_notified_gmp_pct(conn, company_id) == 18.0
+
+
+def test_get_notified_company_ids_returns_distinct_companies_with_history(conn):
+    company_a, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    company_b, _ = db._get_or_create_company(conn, "Gaurik Fashions Limited")
+    db._get_or_create_company(conn, "Never Notified Co")
+    db.record_gmp_notification(conn, company_a, gmp_pct=10.0)
+    db.record_gmp_notification(conn, company_a, gmp_pct=15.0)
+    db.record_gmp_notification(conn, company_b, gmp_pct=20.0)
+    assert sorted(db.get_notified_company_ids(conn)) == sorted([company_a, company_b])
 
 
 def test_record_gmp_snapshot_rejects_unknown_company_id(conn):

@@ -26,17 +26,12 @@ def build_email_body(rows):
     return "\n".join(lines).strip() + "\n"
 
 
-def send_alert(rows):
-    """Sends one batched email for all rows. Returns True on success, False
-    on any SMTP/network failure — caller decides whether to retry (by not
-    marking these filings as notified)."""
-    if not rows:
-        return True
+def _send_email(subject, body):
     msg = EmailMessage()
-    msg["Subject"] = build_email_subject(rows)
+    msg["Subject"] = subject
     msg["From"] = config.ALERT_FROM
     msg["To"] = config.ALERT_TO
-    msg.set_content(build_email_body(rows))
+    msg.set_content(body)
     try:
         with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=30) as smtp:
             smtp.starttls()
@@ -46,3 +41,41 @@ def send_alert(rows):
     except (smtplib.SMTPException, OSError) as exc:
         log.warning("SMTP send failed: %s", exc)
         return False
+
+
+def send_alert(rows):
+    """Sends one batched email for all rows. Returns True on success, False
+    on any SMTP/network failure — caller decides whether to retry (by not
+    marking these filings as notified)."""
+    if not rows:
+        return True
+    return _send_email(build_email_subject(rows), build_email_body(rows))
+
+
+def build_gmp_update_subject(rows):
+    count = len(rows)
+    plural = "" if count == 1 else "s"
+    return f"IPO Watcher: {count} GMP update{plural}"
+
+
+def build_gmp_update_body(rows):
+    lines = []
+    for r in rows:
+        lines.append(
+            f"{r['company_name']}: GMP moved from {r['old_pct']:.1f}% to {r['new_pct']:.1f}%"
+        )
+        lines.append(r["prediction_text"])
+        if r["closing_today"]:
+            lines.append(
+                "Bidding closes today - this is the last day to apply or revoke an application."
+            )
+        lines.append("")
+    return "\n".join(lines).strip() + "\n"
+
+
+def send_gmp_update_alert(rows):
+    """Sends one batched email for all GMP movement rows. Same
+    True/False-on-failure contract as send_alert."""
+    if not rows:
+        return True
+    return _send_email(build_gmp_update_subject(rows), build_gmp_update_body(rows))

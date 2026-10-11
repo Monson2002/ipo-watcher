@@ -24,6 +24,8 @@ class GmpRow:
     company_name: str
     gmp_pct: float
     gmp_rupees: float | None = None
+    close_date: str | None = None
+    is_listed: bool | None = None
 
 
 def parse_gmp_listing(response_json):
@@ -49,6 +51,8 @@ def parse_gmp_listing(response_json):
             company_name=company_name,
             gmp_pct=gmp_pct,
             gmp_rupees=gmp_rupees,
+            close_date=entry.get("close_date"),
+            is_listed=entry.get("is_listed"),
         ))
     return rows
 
@@ -107,7 +111,10 @@ def poll_gmp_snapshots(conn):
             unmatched += 1
             log.warning("No company match for GMP entry %r", row.company_name)
             continue
-        db.record_gmp_snapshot(conn, company_id, row.gmp_pct, row.gmp_rupees)
+        db.record_gmp_snapshot(
+            conn, company_id, row.gmp_pct, row.gmp_rupees,
+            close_date=row.close_date, is_listed=row.is_listed,
+        )
         matched += 1
     result = {"matched": matched, "unmatched": unmatched, "skipped_errors": skipped_errors}
     log.info(
@@ -126,6 +133,7 @@ def main():
     db.init_db(conn)
     try:
         poll_gmp_snapshots(conn)
+        _run.send_gmp_update_alerts(conn)
     except Exception:
         log.exception("Unhandled error in gmp_source poll")
         raise

@@ -33,10 +33,21 @@ CREATE TABLE IF NOT EXISTS gmp_snapshots (
     company_id  INTEGER NOT NULL REFERENCES companies(id),
     gmp_rupees  REAL,
     gmp_pct     REAL NOT NULL,
+    close_date  TEXT,
+    is_listed   INTEGER,
     polled_at   TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_gmp_snapshots_company ON gmp_snapshots(company_id);
+
+CREATE TABLE IF NOT EXISTS gmp_notifications (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id  INTEGER NOT NULL REFERENCES companies(id),
+    gmp_pct     REAL NOT NULL,
+    notified_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_gmp_notifications_company ON gmp_notifications(company_id);
 """
 
 
@@ -129,10 +140,19 @@ def set_pdf_info(conn, filing_id, pdf_path, pdf_sha256):
     conn.commit()
 
 
-def record_gmp_snapshot(conn, company_id, gmp_pct, gmp_rupees=None):
+def record_gmp_snapshot(conn, company_id, gmp_pct, gmp_rupees=None, close_date=None, is_listed=None):
     conn.execute(
-        "INSERT INTO gmp_snapshots (company_id, gmp_rupees, gmp_pct, polled_at) VALUES (?, ?, ?, ?)",
-        (company_id, gmp_rupees, gmp_pct, _now_iso()),
+        """INSERT INTO gmp_snapshots
+           (company_id, gmp_rupees, gmp_pct, close_date, is_listed, polled_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (
+            company_id,
+            gmp_rupees,
+            gmp_pct,
+            close_date,
+            None if is_listed is None else int(is_listed),
+            _now_iso(),
+        ),
     )
     conn.commit()
 
@@ -143,3 +163,44 @@ def get_latest_gmp_pct(conn, company_id):
         (company_id,),
     ).fetchone()
     return row["gmp_pct"] if row else None
+
+
+def get_latest_close_date(conn, company_id):
+    row = conn.execute(
+        "SELECT close_date FROM gmp_snapshots WHERE company_id = ? ORDER BY polled_at DESC, id DESC LIMIT 1",
+        (company_id,),
+    ).fetchone()
+    return row["close_date"] if row else None
+
+
+def get_latest_is_listed(conn, company_id):
+    row = conn.execute(
+        "SELECT is_listed FROM gmp_snapshots WHERE company_id = ? ORDER BY polled_at DESC, id DESC LIMIT 1",
+        (company_id,),
+    ).fetchone()
+    if row is None or row["is_listed"] is None:
+        return None
+    return bool(row["is_listed"])
+
+
+def record_gmp_notification(conn, company_id, gmp_pct):
+    conn.execute(
+        "INSERT INTO gmp_notifications (company_id, gmp_pct, notified_at) VALUES (?, ?, ?)",
+        (company_id, gmp_pct, _now_iso()),
+    )
+    conn.commit()
+
+
+def get_last_notified_gmp_pct(conn, company_id):
+    row = conn.execute(
+        "SELECT gmp_pct FROM gmp_notifications WHERE company_id = ? ORDER BY notified_at DESC, id DESC LIMIT 1",
+        (company_id,),
+    ).fetchone()
+    return row["gmp_pct"] if row else None
+
+
+def get_notified_company_ids(conn):
+    return [
+        row["company_id"]
+        for row in conn.execute("SELECT DISTINCT company_id FROM gmp_notifications")
+    ]

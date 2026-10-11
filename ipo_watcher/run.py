@@ -8,6 +8,7 @@ from . import config, db, sebi_source, downloader, notifier, scoring
 
 MAX_PAGES = 20  # safety cap; normal runs stop once a page yields nothing new
 REQUEST_DELAY_SECONDS = 0.5  # courtesy delay between outbound requests
+GMP_MOVEMENT_THRESHOLD = 5.0  # percentage points, absolute
 log = logging.getLogger("ipo_watcher.run")
 
 
@@ -111,8 +112,8 @@ def download_pending_pdfs(conn):
 def _gmp_prediction_text(conn, company_id):
     gmp_pct = db.get_latest_gmp_pct(conn, company_id)
     if gmp_pct is None:
-        return "GMP not yet available."
-    return scoring.format_prediction(scoring.predict_listing_gain(gmp_pct))
+        return None, "GMP not yet available."
+    return gmp_pct, scoring.format_prediction(scoring.predict_listing_gain(gmp_pct))
 
 
 def send_pending_alert(conn):
@@ -121,16 +122,55 @@ def send_pending_alert(conn):
         log.info("No new filings to alert on")
         return
     enriched_rows = []
+    pending_notifications = []
     for r in rows:
         row = dict(r)
-        row["gmp_prediction"] = _gmp_prediction_text(conn, row["company_id"])
+        gmp_pct, prediction_text = _gmp_prediction_text(conn, row["company_id"])
+        row["gmp_prediction"] = prediction_text
+        if gmp_pct is not None:
+            pending_notifications.append((row["company_id"], gmp_pct))
         enriched_rows.append(row)
     ok = notifier.send_alert(enriched_rows)
     if ok:
         db.mark_notified(conn, [r["id"] for r in rows])
+        for company_id, gmp_pct in pending_notifications:
+            db.record_gmp_notification(conn, company_id, gmp_pct)
         log.info("Sent alert email for %d filing(s)", len(rows))
     else:
         log.error("Failed to send alert email for %d filing(s); will retry next run", len(rows))
+
+
+def send_gmp_update_alerts(conn):
+    today = datetime.datetime.now(config.IST).date().isoformat()
+    rows = []
+    for company_id in db.get_notified_company_ids(conn):
+        is_listed = db.get_latest_is_listed(conn, company_id)
+        close_date = db.get_latest_close_date(conn, company_id)
+        if is_listed or (close_date is not None and close_date < today):
+            continue
+        last_notified = db.get_last_notified_gmp_pct(conn, company_id)
+        latest_pct = db.get_latest_gmp_pct(conn, company_id)
+        if latest_pct is None:
+            continue
+        if abs(latest_pct - last_notified) < GMP_MOVEMENT_THRESHOLD:
+            continue
+        company_row = conn.execute(
+            "SELECT name FROM companies WHERE id = ?", (company_id,)
+        ).fetchone()
+        rows.append({
+            "company_name": company_row["name"],
+            "old_pct": last_notified,
+            "new_pct": latest_pct,
+            "prediction_text": scoring.format_prediction(scoring.predict_listing_gain(latest_pct)),
+            "closing_today": close_date == today,
+        })
+        db.record_gmp_notification(conn, company_id, latest_pct)
+    if rows:
+        ok = notifier.send_gmp_update_alert(rows)
+        if ok:
+            log.info("Sent GMP update alert for %d compan(y/ies)", len(rows))
+        else:
+            log.error("Failed to send GMP update alert for %d compan(y/ies)", len(rows))
 
 
 def main():

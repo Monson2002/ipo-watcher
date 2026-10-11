@@ -90,6 +90,36 @@ def test_parse_gmp_listing_handles_data_key_being_none():
     assert parse_gmp_listing(response) == []
 
 
+def test_parse_gmp_listing_reads_close_date_and_is_listed():
+    response = _envelope([
+        {
+            "name": "Acme Robotics Ltd",
+            "gmp": {"percentage": "5.07", "price": "7.5"},
+            "close_date": "2026-10-20",
+            "is_listed": False,
+        }
+    ])
+    rows = parse_gmp_listing(response)
+    assert rows == [
+        GmpRow(
+            company_name="Acme Robotics Ltd",
+            gmp_pct=5.07,
+            gmp_rupees=7.5,
+            close_date="2026-10-20",
+            is_listed=False,
+        )
+    ]
+
+
+def test_parse_gmp_listing_defaults_close_date_and_is_listed_to_none_when_absent():
+    response = _envelope([
+        {"name": "Upcoming Co Ltd", "gmp": {"percentage": "5.0"}},
+    ])
+    rows = parse_gmp_listing(response)
+    assert rows[0].close_date is None
+    assert rows[0].is_listed is None
+
+
 def test_match_company_exact_match(conn):
     company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
     assert match_company(conn, "Acme Robotics Ltd") == company_id
@@ -201,6 +231,23 @@ def test_poll_gmp_snapshots_counts_skipped_errors_for_malformed_rows(conn):
     with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=fake_json):
         result = poll_gmp_snapshots(conn)
     assert result == {"matched": 1, "unmatched": 0, "skipped_errors": 2}
+
+
+def test_poll_gmp_snapshots_passes_close_date_and_is_listed_through(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    fake_json = {
+        "success": True,
+        "data": [{
+            "name": "Acme Robotics Ltd",
+            "gmp": {"percentage": "5.0", "price": "7.0"},
+            "close_date": "2026-10-20",
+            "is_listed": False,
+        }],
+    }
+    with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=fake_json):
+        poll_gmp_snapshots(conn)
+    assert db.get_latest_close_date(conn, company_id) == "2026-10-20"
+    assert db.get_latest_is_listed(conn, company_id) is False
 
 
 def test_poll_gmp_snapshots_aborts_cleanly_on_http_error(conn):
