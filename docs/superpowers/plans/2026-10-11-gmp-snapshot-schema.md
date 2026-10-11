@@ -41,7 +41,7 @@
   - `db.record_gmp_snapshot(conn, company_id, gmp_pct, gmp_rupees=None) -> None`
   - `db.get_latest_gmp_pct(conn, company_id) -> float | None`
 
-- [ ] **Step 1: Write the failing test for the schema**
+- [x] **Step 1: Write the failing test for the schema**
 
 In `tests/test_db.py`, extend the existing table-presence assertion (do not add a new test function — this is the same assertion the file already makes, just checking one more table):
 
@@ -54,12 +54,12 @@ def test_init_db_creates_tables(conn):
     assert {"companies", "filings", "gmp_snapshots"} <= tables
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `uv run pytest tests/test_db.py::test_init_db_creates_tables -v`
 Expected: FAIL — `gmp_snapshots` is not in `tables` yet.
 
-- [ ] **Step 3: Add the table to `SCHEMA`**
+- [x] **Step 3: Add the table to `SCHEMA`**
 
 In `ipo_watcher/db.py`, append to the `SCHEMA` string (after the `idx_filings_company` index, still inside the same triple-quoted string):
 
@@ -75,19 +75,19 @@ CREATE TABLE IF NOT EXISTS gmp_snapshots (
 CREATE INDEX IF NOT EXISTS idx_gmp_snapshots_company ON gmp_snapshots(company_id);
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `uv run pytest tests/test_db.py::test_init_db_creates_tables -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ipo_watcher/db.py tests/test_db.py
 git commit -m "feat: add gmp_snapshots table to schema"
 ```
 
-- [ ] **Step 6: Write the failing round-trip test**
+- [x] **Step 6: Write the failing round-trip test**
 
 Append to `tests/test_db.py`:
 
@@ -119,12 +119,12 @@ def test_get_latest_gmp_pct_handles_zero_and_negative_values(conn):
     assert db.get_latest_gmp_pct(conn, company_id) == -3.5
 ```
 
-- [ ] **Step 7: Run the tests to verify they fail**
+- [x] **Step 7: Run the tests to verify they fail**
 
 Run: `uv run pytest tests/test_db.py -k "gmp" -v`
 Expected: FAIL with `AttributeError: module 'ipo_watcher.db' has no attribute 'record_gmp_snapshot'` (and similarly for `get_latest_gmp_pct`).
 
-- [ ] **Step 8: Implement `record_gmp_snapshot` and `get_latest_gmp_pct`**
+- [x] **Step 8: Implement `record_gmp_snapshot` and `get_latest_gmp_pct`**
 
 In `ipo_watcher/db.py`, add after `set_pdf_info`:
 
@@ -145,19 +145,19 @@ def get_latest_gmp_pct(conn, company_id):
     return row["gmp_pct"] if row else None
 ```
 
-- [ ] **Step 9: Run the tests to verify they pass**
+- [x] **Step 9: Run the tests to verify they pass**
 
 Run: `uv run pytest tests/test_db.py -k "gmp" -v`
 Expected: PASS (4 tests)
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add ipo_watcher/db.py tests/test_db.py
 git commit -m "feat: add record_gmp_snapshot and get_latest_gmp_pct"
 ```
 
-- [ ] **Step 11: Write the failing test for same-timestamp tie-breaking**
+- [x] **Step 11: Write the failing test for same-timestamp tie-breaking**
 
 Append to `tests/test_db.py`. This pins the `ORDER BY polled_at DESC, id DESC` tiebreaker — without the `id DESC` clause, two rows with an identical `polled_at` return in an undefined order:
 
@@ -170,12 +170,12 @@ def test_get_latest_gmp_pct_breaks_ties_by_insertion_order(conn, monkeypatch):
     assert db.get_latest_gmp_pct(conn, company_id) == 20.0
 ```
 
-- [ ] **Step 12: Run the test to verify it fails or passes for the wrong reason**
+- [x] **Step 12: Run the test to verify it fails or passes for the wrong reason**
 
 Run: `uv run pytest tests/test_db.py::test_get_latest_gmp_pct_breaks_ties_by_insertion_order -v`
 Expected: PASS already, since Step 8's query already includes `id DESC`. This step exists to confirm that tiebreaker is actually exercised, not to drive new code — if it fails, the query in Step 8 is missing the `id DESC` clause and must be fixed before continuing.
 
-- [ ] **Step 13: Write the failing test for cross-company scoping**
+- [x] **Step 13: Write the failing test for cross-company scoping**
 
 ```python
 def test_get_latest_gmp_pct_does_not_leak_between_companies(conn):
@@ -187,12 +187,12 @@ def test_get_latest_gmp_pct_does_not_leak_between_companies(conn):
     assert db.get_latest_gmp_pct(conn, company_b) == 99.0
 ```
 
-- [ ] **Step 14: Run the test to verify it passes**
+- [x] **Step 14: Run the test to verify it passes**
 
 Run: `uv run pytest tests/test_db.py::test_get_latest_gmp_pct_does_not_leak_between_companies -v`
 Expected: PASS (the `WHERE company_id = ?` clause in Step 8 already scopes correctly; this step exists to pin that behavior, same reasoning as Step 12).
 
-- [ ] **Step 15: Write the failing test for the foreign-key constraint**
+- [x] **Step 15: Write the failing test for the foreign-key constraint**
 
 ```python
 def test_record_gmp_snapshot_rejects_unknown_company_id(conn):
@@ -200,17 +200,17 @@ def test_record_gmp_snapshot_rejects_unknown_company_id(conn):
         db.record_gmp_snapshot(conn, company_id=999999, gmp_pct=10.0)
 ```
 
-- [ ] **Step 16: Run the test to verify it passes**
+- [x] **Step 16: Run the test to verify it passes**
 
 Run: `uv run pytest tests/test_db.py::test_record_gmp_snapshot_rejects_unknown_company_id -v`
 Expected: PASS — `connect()` already runs `PRAGMA foreign_keys = ON`, and `company_id INTEGER NOT NULL REFERENCES companies(id)` in Step 3's DDL already enforces this. This step exists to pin that the constraint is real and active for this table specifically, not to drive new code.
 
-- [ ] **Step 17: Run the full test suite**
+- [x] **Step 17: Run the full test suite**
 
 Run: `uv run pytest tests/ -v`
 Expected: all tests pass (the pre-existing 23 plus the 8 new ones added in this task).
 
-- [ ] **Step 18: Commit**
+- [x] **Step 18: Commit**
 
 ```bash
 git add tests/test_db.py

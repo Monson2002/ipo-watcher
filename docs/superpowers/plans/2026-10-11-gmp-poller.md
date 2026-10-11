@@ -44,7 +44,7 @@
   - `GmpRow` — `@dataclass` with fields `company_name: str`, `gmp_pct: float`, `gmp_rupees: float | None`.
   - `parse_gmp_listing(response_json: dict) -> list[GmpRow]`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/test_gmp_source.py`:
 
@@ -109,12 +109,12 @@ def test_parse_gmp_listing_handles_missing_gmp_rupees_price():
     assert rows == [GmpRow(company_name="Percent Only Ltd", gmp_pct=3.2, gmp_rupees=None)]
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_gmp_source.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'ipo_watcher.gmp_source'`.
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 Create `ipo_watcher/gmp_source.py`:
 
@@ -167,12 +167,12 @@ def parse_gmp_listing(response_json):
     return rows
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_gmp_source.py -v`
 Expected: PASS (5 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ipo_watcher/gmp_source.py tests/test_gmp_source.py
@@ -191,7 +191,7 @@ git commit -m "feat: add GmpRow and parse_gmp_listing to gmp_source"
 - Consumes: `db.connect`, `db.init_db`, `db._get_or_create_company(conn, name) -> (company_id, is_new)` (all in `ipo_watcher/db.py`, already used this way by `tests/test_db.py`'s GMP tests).
 - Produces: `match_company(conn, raw_name: str) -> int | None`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_gmp_source.py`:
 
@@ -229,12 +229,12 @@ def test_match_company_matches_despite_suffix_difference(conn):
     assert match_company(conn, "Acme Robotics") == company_id
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_gmp_source.py -k match_company -v`
 Expected: FAIL — `ImportError: cannot import name 'match_company'`.
 
-- [ ] **Step 3: Implement `match_company`**
+- [x] **Step 3: Implement `match_company`**
 
 Append to `ipo_watcher/gmp_source.py`:
 
@@ -261,12 +261,12 @@ def match_company(conn, raw_name):
 
 Move the `import re` to the top of the file alongside the other imports (keep imports grouped at the top, matching `sebi_source.py`'s style) rather than leaving it inline where shown above.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_gmp_source.py -k match_company -v`
 Expected: PASS (4 tests)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add ipo_watcher/gmp_source.py tests/test_gmp_source.py
@@ -287,7 +287,7 @@ git commit -m "feat: add match_company name resolution to gmp_source"
 - Consumes: `config.IPO_GURU_API_KEY` (new).
 - Produces: `fetch_gmp_listing() -> dict` (the decoded JSON envelope, raises `requests.HTTPError` on any non-2xx status, raises `requests.RequestException` after exhausting retries on a connection/timeout failure).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_gmp_source.py`:
 
@@ -333,12 +333,12 @@ def test_fetch_gmp_listing_does_not_retry_on_http_error(monkeypatch):
     assert mock_get.call_count == 1
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_gmp_source.py -k fetch_gmp_listing -v`
 Expected: FAIL — `ImportError: cannot import name 'fetch_gmp_listing'`.
 
-- [ ] **Step 3: Add the config variable**
+- [x] **Step 3: Add the config variable**
 
 In `ipo_watcher/config.py`, after `ALERT_TO`:
 
@@ -353,7 +353,7 @@ In `.env.example`, after `ALERT_TO=you@gmail.com`:
 # IPO_GURU_API_KEY=your-key-here
 ```
 
-- [ ] **Step 4: Implement `fetch_gmp_listing`**
+- [x] **Step 4: Implement `fetch_gmp_listing`**
 
 Append to `ipo_watcher/gmp_source.py` (note: `requests` and `time` are already imported from Task 1's implementation):
 
@@ -377,12 +377,12 @@ def fetch_gmp_listing():
     raise last_exc
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_gmp_source.py -k fetch_gmp_listing -v`
 Expected: PASS (3 tests)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add ipo_watcher/gmp_source.py ipo_watcher/config.py .env.example tests/test_gmp_source.py
@@ -402,7 +402,7 @@ git commit -m "feat: add fetch_gmp_listing and IPO_GURU_API_KEY config"
 - Consumes: `fetch_gmp_listing()`, `parse_gmp_listing()`, `match_company()` (all this file, Tasks 1-3), `db.record_gmp_snapshot(conn, company_id, gmp_pct, gmp_rupees=None)` (from `ipo_watcher/db.py`), `run.setup_logging()` (from `ipo_watcher/run.py`), `config.DB_PATH`.
 - Produces: `poll_gmp_snapshots(conn) -> dict` with keys `"matched"`, `"unmatched"`, `"skipped_errors"` (all `int`); a `main()` entry point for `python -m ipo_watcher.gmp_source`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_gmp_source.py`:
 
@@ -463,12 +463,12 @@ def test_poll_gmp_snapshots_aborts_cleanly_on_http_error(conn):
     assert conn.execute("SELECT COUNT(*) AS n FROM gmp_snapshots").fetchone()["n"] == 0
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/test_gmp_source.py -k poll_gmp_snapshots -v`
 Expected: FAIL — `ImportError: cannot import name 'poll_gmp_snapshots'`.
 
-- [ ] **Step 3: Implement `poll_gmp_snapshots` and the cron entry point**
+- [x] **Step 3: Implement `poll_gmp_snapshots` and the cron entry point**
 
 Append to `ipo_watcher/gmp_source.py`:
 
@@ -524,12 +524,12 @@ if __name__ == "__main__":
 
 Move the `from . import db` and the `main()`-only imports (`run as _run`, `os`) to the top of the file alongside the other imports, matching the rest of the file's style, rather than leaving them inline where shown above.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_gmp_source.py -k poll_gmp_snapshots -v`
 Expected: PASS (4 tests)
 
-- [ ] **Step 5: Add the cron line to README.md**
+- [x] **Step 5: Add the cron line to README.md**
 
 In `README.md`, after the existing "Schedule with cron" section's final paragraph ("This isn't installed anywhere yet..."), add:
 
@@ -549,12 +549,12 @@ filing collector's cron line, this isn't installed anywhere yet — install
 it by hand on whichever server actually hosts this long-term.
 ```
 
-- [ ] **Step 6: Run the full test suite**
+- [x] **Step 6: Run the full test suite**
 
 Run: `uv run pytest tests/ -v`
 Expected: all tests pass (the pre-existing 30 plus the 16 new ones added across this plan's 4 tasks).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add ipo_watcher/gmp_source.py README.md tests/test_gmp_source.py

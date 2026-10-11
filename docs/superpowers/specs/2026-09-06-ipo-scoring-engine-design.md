@@ -4,6 +4,15 @@
 > built yet — this exists to give the next conversation something concrete
 > to react to. No implementation should start from this doc without an
 > explicit go-ahead and a proper `writing-plans` pass afterward.
+>
+> **Superseded, 2026-10-11**: the 4-parameter idea below (fundamentals,
+> GMP, subscription, sentiment) was narrowed by actual research to
+> GMP-only — none of the 7 fundamentals ever reached significance, and
+> subscription data was shown to hurt once tested on its own terms. See
+> `docs/superpowers/specs/2026-09-20-listing-gain-scoring-formula-design.md`
+> (the frozen formula), `2026-10-11-gmp-snapshot-schema-design.md` (its
+> storage), and `2026-10-11-gmp-poller-design.md` (the live data source)
+> for what actually got built. Kept here as the historical starting point.
 
 ## Context
 

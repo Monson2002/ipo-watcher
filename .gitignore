@@ -22,3 +22,4 @@ __pycache__/
 .zshrc
 research/ipo-scoring-validation/data/
 **/.ipynb_checkpoints/
+.superpowers/
