@@ -333,6 +333,7 @@ def main():
             print(f"{row['parameter']:<16} {int(row['n']):>5} {row['pearson_r']:>10.3f} "
                   f"{row['spearman_r']:>11.3f} {row['p_value']:>10.4f}")
 
+        regression(df, MARKET_SENTIMENT, "Model 0: GMP % only, no fundamentals gate (the frozen production formula)", target)
         regression(df, FUNDAMENTALS, "Model 1: fundamentals only", target)
         regression(df, FUNDAMENTALS + DEMAND_TOTAL, "Model 2: fundamentals + Total Sub (no GMP)", target)
         regression(df, FUNDAMENTALS + MARKET_SENTIMENT, "Model 3: fundamentals + GMP % (no Total Sub)", target)

@@ -79,14 +79,17 @@ tier at 300 requests/day / 15/min, no credit card. Response includes both
 GMP and subscription fields per IPO Guru's docs, though only the `GMP %`
 field is needed given the decision above.
 
-**Unverified — must be confirmed with a real test call before this is
-treated as settled**, same caution the original Phase 2 ideation doc gave
-for parse.bot/Upstox: everything above comes from IPO Guru's own
-documentation page, not an actual authenticated request. Confirm before
-committing:
-- Exact field name/shape for GMP % in a real response (docs vs. reality).
-- API key issuance actually works (manually issued via email, per their
-  docs) and within a reasonable turnaround.
+**Partially verified, 2026-10-11**: an unauthenticated `GET
+https://www.ipoguru.in/api/v1/ipos` returns a real `401 Unauthorized` —
+the endpoint exists and enforces the documented auth requirement, not a
+dead link or a documentation fiction. That is the most that can be
+checked without a key. Still open, and still blocking before this is
+treated as fully settled:
+- Exact field name/shape for GMP % in a real response (docs vs. reality)
+  — needs an authenticated call, not just reachability.
+- API key issuance actually works end to end — request a key by emailing
+  `ipoguru.in[at]gmail.com` per their docs (a manual step; no automated
+  path exists) and confirm turnaround and that a real key arrives.
 - The 300/day free-tier limit is workable for however often the live
   collector ends up polling (cadence is a deferred decision, but the
   limit should be checked against whatever cadence gets chosen later).
@@ -172,21 +175,20 @@ not exchange-verified). This is a statistical estimate, not advice.
 Concrete, buildable now, without waiting on the deferred DB/wiring
 decisions:
 
-1. **Formalize the GMP-%-only spec in `analyze.py`/`FINDINGS.md`** — it
-   currently only exists as an ad-hoc check run during this design
-   session, not as a committed, reproducible part of the model hierarchy.
-   Add it alongside Models 1–5 (as the actual best-performing spec) so
-   `uv run analyze.py` reproduces the numbers this doc cites.
-2. **A small, pure `predict_listing_gain(gmp_pct)` function** implementing
-   the frozen formula above, returning the point estimate plus the
-   empirical 5th/95th-percentile interval from the table above (not a
-   symmetric ±MAE band) — self-contained, no live data dependency, no DB,
-   easy to unit-test against the coefficients/percentiles in this doc.
-   This is the reusable piece a later wiring pass would actually call.
-3. **Verify IPO Guru's API with a real test call** (a manual/spike step,
-   not code) — request a key, confirm the `GMP %` field's real shape
-   matches what's assumed here, before any live-sourcing code gets built
-   against it.
+1. ~~**Formalize the GMP-%-only spec in `analyze.py`/`FINDINGS.md`**~~ —
+   **done, 2026-10-11.** Added as "Model 0" in `analyze.py`, right before
+   Model 1. `uv run analyze.py` now reproduces this doc's numbers exactly
+   (R²=0.650, MAE=12.26, RMSE=16.55, n=147).
+2. ~~**A small, pure `predict_listing_gain(gmp_pct)` function**~~ —
+   **done, 2026-10-11.** `research/ipo-scoring-validation/score.py` —
+   frozen coefficients, the empirical percentile interval, the exact
+   output wording from this doc, and a runnable self-check
+   (`uv run score.py`).
+3. **Verify IPO Guru's API with a real test call** — **partially done,
+   2026-10-11**: confirmed the endpoint is real (401 on an unauthenticated
+   call, not a dead link). Still needs an actual key, which only a human
+   can request by email — see the updated "Live data source" section
+   above. Not something Claude can complete unassisted.
 
 Everything else (DB schema, `run.py` wiring, refresh cadence, refit
 cadence) stays deferred per the section above.
