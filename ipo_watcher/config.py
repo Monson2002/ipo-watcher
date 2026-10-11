@@ -15,6 +15,8 @@ SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
 ALERT_FROM = os.environ.get("ALERT_FROM", SMTP_USER)
 ALERT_TO = os.environ.get("ALERT_TO", "")
 
+IPO_GURU_API_KEY = os.environ.get("IPO_GURU_API_KEY", "")
+
 DB_PATH = os.environ.get("IPO_WATCHER_DB_PATH", "data/ipo_watcher.db")
 PDF_DIR = os.environ.get("IPO_WATCHER_PDF_DIR", "data/pdfs")
 LOG_PATH = os.environ.get("IPO_WATCHER_LOG_PATH", "logs/ipo_watcher.log")

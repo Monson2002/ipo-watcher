@@ -36,3 +36,37 @@ adjust the hour to your box's local-time equivalent of 9 AM IST if not):
 
 This isn't installed anywhere yet — install it on whichever server actually
 hosts this long-term (not a throwaway/dev session), once deployed.
+
+### GMP poller (separate, more frequent cron)
+
+The GMP poller (`ipo_watcher.gmp_source`) is a **separate** cron entry from
+the filing collector above — different cadence, different failure domain.
+IPO Guru's free API tier allows only 10 requests/day, so this runs exactly
+10 times, 45 minutes apart, across market hours — using the entire daily
+budget with no headroom for ad-hoc calls that day.
+
+A single `*/45 9-15 * * 1-5` line does **not** do this — cron's minute and
+hour fields combine as a cartesian product, so that pattern fires at both
+`:00` and `:45` every hour (14 runs/day, not 10), which would burn through
+the budget by mid-afternoon and get 429s on the last few polls of the day
+— exactly the readings that matter most as an IPO nears its listing date.
+Ten separate lines, one per exact time, are needed instead:
+
+    CRON_TZ=Asia/Kolkata
+    0 9 * * 1-5 cd /path/to/ipo-watcher && /path/to/.venv/bin/python -m ipo_watcher.gmp_source >> logs/gmp_cron.log 2>&1
+    45 9 * * 1-5 cd /path/to/ipo-watcher && /path/to/.venv/bin/python -m ipo_watcher.gmp_source >> logs/gmp_cron.log 2>&1
+    30 10 * * 1-5 cd /path/to/ipo-watcher && /path/to/.venv/bin/python -m ipo_watcher.gmp_source >> logs/gmp_cron.log 2>&1
+    15 11 * * 1-5 cd /path/to/ipo-watcher && /path/to/.venv/bin/python -m ipo_watcher.gmp_source >> logs/gmp_cron.log 2>&1
+    0 12 * * 1-5 cd /path/to/ipo-watcher && /path/to/.venv/bin/python -m ipo_watcher.gmp_source >> logs/gmp_cron.log 2>&1
+    45 12 * * 1-5 cd /path/to/ipo-watcher && /path/to/.venv/bin/python -m ipo_watcher.gmp_source >> logs/gmp_cron.log 2>&1
+    30 13 * * 1-5 cd /path/to/ipo-watcher && /path/to/.venv/bin/python -m ipo_watcher.gmp_source >> logs/gmp_cron.log 2>&1
+    15 14 * * 1-5 cd /path/to/ipo-watcher && /path/to/.venv/bin/python -m ipo_watcher.gmp_source >> logs/gmp_cron.log 2>&1
+    0 15 * * 1-5 cd /path/to/ipo-watcher && /path/to/.venv/bin/python -m ipo_watcher.gmp_source >> logs/gmp_cron.log 2>&1
+    45 15 * * 1-5 cd /path/to/ipo-watcher && /path/to/.venv/bin/python -m ipo_watcher.gmp_source >> logs/gmp_cron.log 2>&1
+
+That's 9:00, 9:45, 10:30, 11:15, 12:00, 12:45, 13:30, 14:15, 15:00, 15:45
+— ten calls, each 45 minutes apart, none skipped.
+
+Requires `IPO_GURU_API_KEY` set in `.env` (see `.env.example`). Like the
+filing collector's cron line, this isn't installed anywhere yet — install
+it by hand on whichever server actually hosts this long-term.
