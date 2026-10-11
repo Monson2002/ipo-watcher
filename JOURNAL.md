@@ -250,3 +250,48 @@ happened and why*, not the technical detail.
   still said things like "nothing here is wired into the live collector"
   after the formula they describe became exactly that.
 - Tests: 54/54 passing throughout.
+- Brainstormed the remaining "refresh/refit cadence" open question
+  (left over from the scoring-formula and poller design docs). Split it
+  in two: refit cadence (retraining `scoring.py`'s coefficients) stays a
+  documented manual-review policy — parked until the real API key
+  arrives and some real usage happens. Refresh cadence turned into its
+  own architectural design: a follow-up "GMP moved" email whenever a
+  tracked company's GMP shifts ≥5 percentage points from the value last
+  actually emailed, with extra emphasis when `close_date` (bidding
+  closes today) is today, and a permanent stop once `is_listed` or
+  `close_date` says the window is over.
+- Built it: a new `gmp_notifications` table (what GMP value was last
+  actually emailed, separate from `gmp_snapshots`' every-poll history),
+  `close_date`/`is_listed` columns added directly to the already-shipped
+  `gmp_snapshots` table (safe only because nothing's deployed yet — no
+  migrations framework exists), and `run.py`'s new
+  `send_gmp_update_alerts`, called from `gmp_source.py`'s own cron cycle
+  right after polling — zero new cron entries, zero new API calls.
+- A fresh review caught one real bug before committing: `send_pending_alert`
+  was recording the GMP baseline even when the filing email failed to
+  send, unlike that function's own established retry contract (filings
+  stay unnotified and the whole batch retries). Fixed. A second,
+  symmetric case for the update-alert path was flagged too, but that one
+  was an intentional, already-reasoned spec decision — left as specified.
+- Caught my own float bug right after: `abs(latest - last_notified) >=
+  5.0` can miss a true exact 5.00pp move because of floating-point
+  imprecision (4.20→9.20 computes as 4.999999999999999). Fixed by
+  rounding the comparison.
+- Asked for one more pass over every deferred minor from both GMP
+  reviews (the poller's and the update-alerts') and cleared the whole
+  list in one batch: a NaN/infinite `gmp_pct` guard, defensive parsing
+  for `is_listed`/`close_date` (string "true"/"false", malformed dates —
+  all degrade to `None` instead of crashing the whole poll),
+  deterministic tie-breaking in `match_company` on a name-normalization
+  collision, narrowed the HTTP retry net to connection/timeout errors
+  only, fail-fast on a missing `IPO_GURU_API_KEY`, a mislabeled exception
+  message, a log-wording grammar nit, and the handful of test gaps the
+  reviewers named. The one item left as documentation-only rather than
+  code: the "permanent" stop re-checks live state every poll rather than
+  latching a flag — correcting the spec's wording to match reality
+  instead of adding schema for a flapping-data scenario nothing has
+  actually shown happening.
+- Caught `CLAUDE.md` and this journal drifting stale again, same class
+  of mistake as the first audit — neither mentioned `gmp_notifications`,
+  `send_gmp_update_alerts`, or any of this work. Fixed both.
+- Tests: 91/91 passing throughout this whole arc.
