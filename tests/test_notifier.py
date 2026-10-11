@@ -8,6 +8,7 @@ ROWS = [
         "document_url": "https://www.sebi.gov.in/sebi_data/attachdocs/sep-2026/1.pdf",
         "source_page_url": "https://www.sebi.gov.in/filings/public-issues/sep-2026/example-textiles-drhp_1.html",
         "is_first_filing": 1,
+        "gmp_prediction": "Predicted Listing Gain: +18.5%\n...",
     },
     {
         "company_name": "Acme Robotics Ltd",
@@ -16,6 +17,7 @@ ROWS = [
         "document_url": "https://www.sebi.gov.in/sebi_data/attachdocs/sep-2026/2.pdf",
         "source_page_url": "https://www.sebi.gov.in/filings/public-issues/sep-2026/acme-corrigendum_2.html",
         "is_first_filing": 0,
+        "gmp_prediction": "GMP not yet available.",
     },
 ]
 
@@ -32,6 +34,12 @@ def test_build_email_body_labels_new_vs_existing_company():
     assert "https://www.sebi.gov.in/sebi_data/attachdocs/sep-2026/1.pdf" in body
     assert "Existing company: Acme Robotics Ltd" in body
     assert "  Corrigendum to DRHP filed 2026-09-05" in body
+
+
+def test_build_email_body_includes_gmp_prediction_per_row():
+    body = notifier.build_email_body(ROWS)
+    assert "Predicted Listing Gain: +18.5%" in body
+    assert "GMP not yet available." in body
 
 
 from unittest.mock import patch, MagicMock

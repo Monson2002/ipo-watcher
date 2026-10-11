@@ -21,6 +21,7 @@ def build_email_body(rows):
         lines.append(f"  {r['filing_type']} filed {r['filing_date']}")
         lines.append(f"  {r['document_url']}")
         lines.append(f"  (source: {r['source_page_url']})")
+        lines.append(f"  {r['gmp_prediction']}")
         lines.append("")
     return "\n".join(lines).strip() + "\n"
 
