@@ -74,10 +74,19 @@ more historical outcomes accumulate is deferred (see below).
 ## Live data source: IPO Guru's free API
 
 Supplies `GMP %` per currently-tracked IPO — `GET /ipos` (optionally
-filtered by `status=open|upcoming|closed`), `X-API-KEY` header auth, free
-tier at 300 requests/day / 15/min, no credit card. Response includes both
-GMP and subscription fields per IPO Guru's docs, though only the `GMP %`
-field is needed given the decision above.
+filtered by `status=open|upcoming|closed`), `X-API-KEY` header auth, no
+credit card. Response includes both GMP and subscription fields per IPO
+Guru's docs, though only the `GMP %` field is needed given the decision
+above.
+
+**Correction, 2026-10-11**: the free tier is **10 requests/day, 1/min**
+("Evaluation only"), not 300/day as originally stated here — that number
+was never verified against the real pricing page. Confirmed directly from
+`https://www.ipoguru.in/ipo-gmp-details-developer-api`. See
+`docs/superpowers/specs/2026-10-11-gmp-poller-design.md` for the full tier
+table and how the poller design accounts for this tighter budget (one
+unfiltered call per poll, ~10 calls/day spread across market hours, no
+retry headroom on a rate-limit error).
 
 **Partially verified, 2026-10-11**: an unauthenticated `GET
 https://www.ipoguru.in/api/v1/ipos` returns a real `401 Unauthorized` —
