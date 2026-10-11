@@ -173,3 +173,26 @@ happened and why*, not the technical detail.
   Haven't reviewed/approved it yet myself; implementation (the
   `predict_listing_gain()` function, formalizing the GMP-%-only spec in
   `analyze.py`) hasn't started.
+
+## 2026-10-11 — a recap, and the three implementation tasks
+
+- Came back to the project after about three weeks away. Asked for a
+  fresh recap in ASD-STE100 (Simplified Technical English) style, as an
+  HTML page — published as an artifact first, then copied into the repo
+  at `docs/recaps/2026-10-11-recap.html` as a real standalone document
+  (had to add back the `<!doctype html>`/`<head>` wrapper the Artifact
+  tool normally supplies automatically).
+- Then did all three tasks the design spec had queued up:
+  - **Model 0**: formalized the GMP-%-only spec in `analyze.py` (it had
+    only existed as an ad-hoc check before). `uv run analyze.py`
+    reproduces the exact numbers now (R²=0.650, MAE=12.26, n=147).
+  - **`score.py`**: wrote `predict_listing_gain()` — the frozen formula,
+    the empirical percentile interval, the exact output wording from the
+    spec, with a runnable self-check.
+  - **IPO Guru's API**: tested an unauthenticated call — got a real `401
+    Unauthorized`, confirming the endpoint exists and isn't a
+    documentation fiction. Getting an actual key still needs emailing
+    `ipoguru.in[at]gmail.com` and waiting for a reply — a manual step,
+    not something to automate.
+- `FINDINGS.md` and the design spec both updated to record what is now
+  actually done vs. still open. Tests still pass (23/23).
