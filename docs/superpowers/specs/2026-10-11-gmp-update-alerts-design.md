@@ -227,6 +227,14 @@ later; not solving it now, since deployment itself hasn't happened yet.
    regardless — the stop applies only to `send_gmp_update_alerts`'s
    email-eligibility check, never to storage. See the "Stopping
    condition" step in `send_gmp_update_alerts` above.
+   **Correction, 2026-10-11**: the stop is re-checked from the *latest*
+   snapshot on every poll, not latched into a permanent flag. In
+   practice this means it would resume emailing if IPO Guru's own data
+   ever reverted `is_listed` to false or pushed `close_date` forward
+   (e.g. a genuine bidding-window extension) after already stopping. No
+   dedicated "stopped" state was added for this — it would need new
+   schema for a case that hasn't been observed to happen. Revisit only
+   if real data shows IPO Guru's fields actually flap like this.
 2. ~~Should `is_listed` factor in at all?~~ — **resolved**: yes, folded
    into the same stopping condition as `close_date` above, via the new
    `get_latest_is_listed` accessor and the `is_listed` column on

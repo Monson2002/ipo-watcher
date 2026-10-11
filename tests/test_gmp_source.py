@@ -21,6 +21,11 @@ def conn():
     c.close()
 
 
+@pytest.fixture(autouse=True)
+def _default_api_key(monkeypatch):
+    monkeypatch.setattr("ipo_watcher.gmp_source.config.IPO_GURU_API_KEY", "test-key-123")
+
+
 def _envelope(entries):
     return {"success": True, "plan": "standard", "count": len(entries), "data": entries}
 
@@ -78,6 +83,14 @@ def test_parse_gmp_listing_handles_missing_gmp_rupees_price():
     assert rows == [GmpRow(company_name="Percent Only Ltd", gmp_pct=3.2, gmp_rupees=None)]
 
 
+def test_parse_gmp_listing_skips_entry_with_nan_or_infinite_percentage():
+    response = _envelope([
+        {"name": "Nan Co Ltd", "gmp": {"percentage": "nan"}},
+        {"name": "Inf Co Ltd", "gmp": {"percentage": "inf"}},
+    ])
+    assert parse_gmp_listing(response) == []
+
+
 def test_parse_gmp_listing_skips_entry_with_missing_name():
     response = _envelope([
         {"gmp": {"percentage": "5.0", "price": "7.0"}},
@@ -111,6 +124,32 @@ def test_parse_gmp_listing_reads_close_date_and_is_listed():
     ]
 
 
+def test_parse_gmp_listing_treats_unexpected_is_listed_type_as_none():
+    response = _envelope([
+        {"name": "Weird Co Ltd", "gmp": {"percentage": "5.0"}, "is_listed": "yes please"},
+    ])
+    rows = parse_gmp_listing(response)
+    assert rows[0].is_listed is None
+
+
+def test_parse_gmp_listing_accepts_string_booleans_for_is_listed():
+    response = _envelope([
+        {"name": "String True Ltd", "gmp": {"percentage": "5.0"}, "is_listed": "true"},
+        {"name": "String False Ltd", "gmp": {"percentage": "5.0"}, "is_listed": "false"},
+    ])
+    rows = parse_gmp_listing(response)
+    assert rows[0].is_listed is True
+    assert rows[1].is_listed is False
+
+
+def test_parse_gmp_listing_treats_malformed_close_date_as_none():
+    response = _envelope([
+        {"name": "Bad Date Ltd", "gmp": {"percentage": "5.0"}, "close_date": "20-Oct-2026"},
+    ])
+    rows = parse_gmp_listing(response)
+    assert rows[0].close_date is None
+
+
 def test_parse_gmp_listing_defaults_close_date_and_is_listed_to_none_when_absent():
     response = _envelope([
         {"name": "Upcoming Co Ltd", "gmp": {"percentage": "5.0"}},
@@ -140,6 +179,18 @@ def test_match_company_matches_despite_suffix_difference(conn):
     assert match_company(conn, "Acme Robotics") == company_id
 
 
+def test_match_company_matches_limited_suffix_specifically(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Limited")
+    assert match_company(conn, "Acme Robotics Ltd") == company_id
+
+
+def test_match_company_picks_lowest_id_on_normalization_collision(conn, caplog):
+    first_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    db._get_or_create_company(conn, "Acme Robotics Limited")
+    assert match_company(conn, "Acme Robotics Pvt") == first_id
+    assert "Multiple companies normalize" in caplog.text
+
+
 def test_fetch_gmp_listing_sends_api_key_header_and_returns_json(monkeypatch):
     monkeypatch.setattr("ipo_watcher.gmp_source.config.IPO_GURU_API_KEY", "test-key-123")
     fake_response = MagicMock()
@@ -164,6 +215,17 @@ def test_fetch_gmp_listing_retries_on_connection_error_then_succeeds(monkeypatch
         result = fetch_gmp_listing()
     assert result == {"success": True, "data": []}
     assert mock_get.call_count == 2
+
+
+def test_fetch_gmp_listing_does_not_retry_on_invalid_url_error(monkeypatch):
+    monkeypatch.setattr("ipo_watcher.gmp_source.config.IPO_GURU_API_KEY", "test-key-123")
+    with patch(
+        "ipo_watcher.gmp_source.requests.get",
+        side_effect=requests.exceptions.InvalidURL("bad url"),
+    ) as mock_get:
+        with pytest.raises(requests.exceptions.InvalidURL):
+            fetch_gmp_listing()
+    assert mock_get.call_count == 1
 
 
 def test_fetch_gmp_listing_does_not_retry_on_http_error(monkeypatch):
@@ -200,6 +262,7 @@ def test_poll_gmp_snapshots_partial_match(conn):
     with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=fake_json):
         result = poll_gmp_snapshots(conn)
     assert result == {"matched": 1, "unmatched": 1, "skipped_errors": 0}
+    assert conn.execute("SELECT COUNT(*) AS n FROM gmp_snapshots").fetchone()["n"] == 1
 
 
 def test_poll_gmp_snapshots_does_not_cross_attribute_between_companies(conn):
@@ -248,6 +311,15 @@ def test_poll_gmp_snapshots_passes_close_date_and_is_listed_through(conn):
         poll_gmp_snapshots(conn)
     assert db.get_latest_close_date(conn, company_id) == "2026-10-20"
     assert db.get_latest_is_listed(conn, company_id) is False
+
+
+def test_poll_gmp_snapshots_skips_cleanly_when_api_key_missing(conn, monkeypatch):
+    monkeypatch.setattr("ipo_watcher.gmp_source.config.IPO_GURU_API_KEY", "")
+    db._get_or_create_company(conn, "Acme Robotics Ltd")
+    with patch("ipo_watcher.gmp_source.requests.get") as mock_get:
+        result = poll_gmp_snapshots(conn)
+    mock_get.assert_not_called()
+    assert result == {"matched": 0, "unmatched": 0, "skipped_errors": 0}
 
 
 def test_poll_gmp_snapshots_aborts_cleanly_on_http_error(conn):

@@ -213,12 +213,25 @@ def test_send_gmp_update_alerts_batches_multiple_companies_into_one_email(tmp_pa
 def test_send_gmp_update_alerts_stops_once_listed(tmp_path):
     conn = db.connect(str(tmp_path / "gmp_update5.db"))
     db.init_db(conn)
-    _seed_company_with_history(conn, "Acme Robotics Ltd", last_notified_pct=10.0, latest_gmp_pct=30.0, is_listed=True)
+    company_id = _seed_company_with_history(conn, "Acme Robotics Ltd", last_notified_pct=10.0, latest_gmp_pct=30.0, is_listed=True)
 
     with patch("ipo_watcher.run.notifier.send_gmp_update_alert", return_value=True) as mock_send:
         run.send_gmp_update_alerts(conn)
 
     mock_send.assert_not_called()
+    assert db.get_last_notified_gmp_pct(conn, company_id) == 10.0
+    conn.close()
+
+
+def test_send_gmp_update_alerts_resets_baseline_even_when_send_fails(tmp_path):
+    conn = db.connect(str(tmp_path / "gmp_update_send_fail.db"))
+    db.init_db(conn)
+    company_id = _seed_company_with_history(conn, "Acme Robotics Ltd", last_notified_pct=10.0, latest_gmp_pct=16.0)
+
+    with patch("ipo_watcher.run.notifier.send_gmp_update_alert", return_value=False):
+        run.send_gmp_update_alerts(conn)
+
+    assert db.get_last_notified_gmp_pct(conn, company_id) == 16.0
     conn.close()
 
 
@@ -226,12 +239,13 @@ def test_send_gmp_update_alerts_stops_once_close_date_has_passed(tmp_path):
     conn = db.connect(str(tmp_path / "gmp_update6.db"))
     db.init_db(conn)
     yesterday = (datetime.datetime.now(db.config.IST).date() - datetime.timedelta(days=1)).isoformat()
-    _seed_company_with_history(conn, "Acme Robotics Ltd", last_notified_pct=10.0, latest_gmp_pct=30.0, close_date=yesterday)
+    company_id = _seed_company_with_history(conn, "Acme Robotics Ltd", last_notified_pct=10.0, latest_gmp_pct=30.0, close_date=yesterday)
 
     with patch("ipo_watcher.run.notifier.send_gmp_update_alert", return_value=True) as mock_send:
         run.send_gmp_update_alerts(conn)
 
     mock_send.assert_not_called()
+    assert db.get_last_notified_gmp_pct(conn, company_id) == 10.0
     conn.close()
 
 

@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import re
 import time
@@ -17,6 +18,25 @@ RETRY_SLEEP_SECONDS = 3
 IPOS_URL = "https://www.ipoguru.in/api/v1/ipos"
 
 _SUFFIX_RE = re.compile(r"\b(ltd|limited|pvt|private|ipo)\b\.?", re.IGNORECASE)
+_CLOSE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _parse_is_listed(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("true", "1"):
+            return True
+        if lowered in ("false", "0"):
+            return False
+    return None
+
+
+def _parse_close_date(value):
+    if isinstance(value, str) and _CLOSE_DATE_RE.match(value):
+        return value
+    return None
 
 
 @dataclass
@@ -41,6 +61,8 @@ def parse_gmp_listing(response_json):
             gmp_pct = float(gmp["percentage"])
         except (KeyError, TypeError, ValueError):
             continue
+        if not math.isfinite(gmp_pct):
+            continue
         gmp_rupees = None
         if gmp.get("price") is not None:
             try:
@@ -51,8 +73,8 @@ def parse_gmp_listing(response_json):
             company_name=company_name,
             gmp_pct=gmp_pct,
             gmp_rupees=gmp_rupees,
-            close_date=entry.get("close_date"),
-            is_listed=entry.get("is_listed"),
+            close_date=_parse_close_date(entry.get("close_date")),
+            is_listed=_parse_is_listed(entry.get("is_listed")),
         ))
     return rows
 
@@ -66,10 +88,17 @@ def _normalize_name(name):
 
 def match_company(conn, raw_name):
     target = _normalize_name(raw_name)
-    for row in conn.execute("SELECT id, name FROM companies"):
-        if _normalize_name(row["name"]) == target:
-            return row["id"]
-    return None
+    matches = [
+        row["id"]
+        for row in conn.execute("SELECT id, name FROM companies ORDER BY id ASC")
+        if _normalize_name(row["name"]) == target
+    ]
+    if len(matches) > 1:
+        log.warning(
+            "Multiple companies normalize to %r; using the lowest id (%d)",
+            target, matches[0],
+        )
+    return matches[0] if matches else None
 
 
 def fetch_gmp_listing():
@@ -81,7 +110,7 @@ def fetch_gmp_listing():
                 headers={"User-Agent": USER_AGENT, "X-API-KEY": config.IPO_GURU_API_KEY},
                 timeout=TIMEOUT,
             )
-        except requests.RequestException as exc:
+        except (requests.ConnectionError, requests.Timeout) as exc:
             last_exc = exc
             if attempt < MAX_RETRIES:
                 time.sleep(RETRY_SLEEP_SECONDS)
@@ -92,6 +121,9 @@ def fetch_gmp_listing():
 
 
 def poll_gmp_snapshots(conn):
+    if not config.IPO_GURU_API_KEY:
+        log.error("GMP poll skipped: IPO_GURU_API_KEY is not configured")
+        return {"matched": 0, "unmatched": 0, "skipped_errors": 0}
     try:
         response_json = fetch_gmp_listing()
     except requests.HTTPError as exc:
@@ -135,7 +167,7 @@ def main():
         poll_gmp_snapshots(conn)
         _run.send_gmp_update_alerts(conn)
     except Exception:
-        log.exception("Unhandled error in gmp_source poll")
+        log.exception("Unhandled error in gmp_source poll or update-alert cycle")
         raise
     finally:
         conn.close()

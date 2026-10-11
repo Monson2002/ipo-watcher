@@ -166,11 +166,12 @@ def send_gmp_update_alerts(conn):
         })
         db.record_gmp_notification(conn, company_id, latest_pct)
     if rows:
+        plural = "y" if len(rows) == 1 else "ies"
         ok = notifier.send_gmp_update_alert(rows)
         if ok:
-            log.info("Sent GMP update alert for %d compan(y/ies)", len(rows))
+            log.info("Sent GMP update alert for %d compan%s", len(rows), plural)
         else:
-            log.error("Failed to send GMP update alert for %d compan(y/ies)", len(rows))
+            log.error("Failed to send GMP update alert for %d compan%s", len(rows), plural)
 
 
 def main():
