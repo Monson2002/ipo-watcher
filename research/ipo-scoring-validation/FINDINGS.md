@@ -27,6 +27,14 @@ via `analyze.py` — see `README.md` to reproduce.
   availability is random, and did a first OLS-vs-Ridge-vs-ElasticNet pass.
   **This materially changes the headline conclusion — read below before
   reusing rev. 2's numbers.**
+- **2026-10-11 addendum**: the GMP-%-only spec (dropping fundamentals
+  entirely, not just leaving them non-significant) was formalized as
+  **Model 0** in `analyze.py` — previously it only existed as an ad-hoc
+  check from the scoring-formula design session. `uv run analyze.py` now
+  reproduces it directly (R²=0.650, MAE=12.26, RMSE=16.55 for Listing
+  Gain, n=147). The frozen formula itself now lives in `score.py`'s
+  `predict_listing_gain()` — see
+  `docs/superpowers/specs/2026-09-20-listing-gain-scoring-formula-design.md`.
 
 ## Headline result, revised: time-based CV shows much weaker, noisier performance than rev. 2 reported
 
