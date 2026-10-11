@@ -27,6 +27,16 @@ CREATE TABLE IF NOT EXISTS filings (
 );
 
 CREATE INDEX IF NOT EXISTS idx_filings_company ON filings(company_id);
+
+CREATE TABLE IF NOT EXISTS gmp_snapshots (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id  INTEGER NOT NULL REFERENCES companies(id),
+    gmp_rupees  REAL,
+    gmp_pct     REAL NOT NULL,
+    polled_at   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_gmp_snapshots_company ON gmp_snapshots(company_id);
 """
 
 
@@ -117,3 +127,19 @@ def set_pdf_info(conn, filing_id, pdf_path, pdf_sha256):
         (pdf_path, pdf_sha256, filing_id),
     )
     conn.commit()
+
+
+def record_gmp_snapshot(conn, company_id, gmp_pct, gmp_rupees=None):
+    conn.execute(
+        "INSERT INTO gmp_snapshots (company_id, gmp_rupees, gmp_pct, polled_at) VALUES (?, ?, ?, ?)",
+        (company_id, gmp_rupees, gmp_pct, _now_iso()),
+    )
+    conn.commit()
+
+
+def get_latest_gmp_pct(conn, company_id):
+    row = conn.execute(
+        "SELECT gmp_pct FROM gmp_snapshots WHERE company_id = ? ORDER BY polled_at DESC, id DESC LIMIT 1",
+        (company_id,),
+    ).fetchone()
+    return row["gmp_pct"] if row else None

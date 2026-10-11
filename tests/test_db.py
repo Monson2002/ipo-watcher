@@ -18,7 +18,56 @@ def test_init_db_creates_tables(conn):
         row["name"]
         for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
     }
-    assert {"companies", "filings"} <= tables
+    assert {"companies", "filings", "gmp_snapshots"} <= tables
+
+
+def test_record_and_get_latest_gmp_pct(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=18.4)
+    assert db.get_latest_gmp_pct(conn, company_id) == 18.4
+
+
+def test_get_latest_gmp_pct_returns_none_with_no_snapshot(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    assert db.get_latest_gmp_pct(conn, company_id) is None
+
+
+def test_record_gmp_snapshot_gmp_rupees_defaults_to_null(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=5.0)
+    row = conn.execute("SELECT gmp_rupees FROM gmp_snapshots WHERE company_id = ?", (company_id,)).fetchone()
+    assert row["gmp_rupees"] is None
+
+
+def test_get_latest_gmp_pct_handles_zero_and_negative_values(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=0.0)
+    assert db.get_latest_gmp_pct(conn, company_id) == 0.0
+
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=-3.5)
+    assert db.get_latest_gmp_pct(conn, company_id) == -3.5
+
+
+def test_get_latest_gmp_pct_breaks_ties_by_insertion_order(conn, monkeypatch):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    monkeypatch.setattr(db, "_now_iso", lambda: "2026-10-11T10:00:00+05:30")
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=10.0)
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=20.0)
+    assert db.get_latest_gmp_pct(conn, company_id) == 20.0
+
+
+def test_get_latest_gmp_pct_does_not_leak_between_companies(conn):
+    company_a, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    company_b, _ = db._get_or_create_company(conn, "Gaurik Fashions Limited")
+    db.record_gmp_snapshot(conn, company_a, gmp_pct=10.0)
+    db.record_gmp_snapshot(conn, company_b, gmp_pct=99.0)
+    assert db.get_latest_gmp_pct(conn, company_a) == 10.0
+    assert db.get_latest_gmp_pct(conn, company_b) == 99.0
+
+
+def test_record_gmp_snapshot_rejects_unknown_company_id(conn):
+    with pytest.raises(sqlite3.IntegrityError):
+        db.record_gmp_snapshot(conn, company_id=999999, gmp_pct=10.0)
 
 
 def test_upsert_filing_creates_company_on_first_filing(conn):
