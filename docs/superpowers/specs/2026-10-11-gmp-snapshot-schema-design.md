@@ -7,8 +7,10 @@
 ## Context
 
 `docs/superpowers/specs/2026-09-20-listing-gain-scoring-formula-design.md`
-froze the Listing Gain formula (`predict_listing_gain()` in
-`research/ipo-scoring-validation/score.py`) and deferred its DB schema as
+froze the Listing Gain formula (`predict_listing_gain()`, now in
+`ipo_watcher/scoring.py` — originally written under `research/`, moved
+into the live package once `run.py` actually wired it in) and deferred its
+DB schema as
 a separate design pass, since the formula turned out to need only one
 live field (`GMP %`), not the four-field `market_signals` shape the
 original Phase 2 ideation doc had sketched. This doc is that pass.

@@ -4,7 +4,7 @@ import logging.handlers
 import os
 import time
 
-from . import config, db, sebi_source, downloader, notifier
+from . import config, db, sebi_source, downloader, notifier, scoring
 
 MAX_PAGES = 20  # safety cap; normal runs stop once a page yields nothing new
 REQUEST_DELAY_SECONDS = 0.5  # courtesy delay between outbound requests
@@ -108,12 +108,24 @@ def download_pending_pdfs(conn):
     log.info("Downloaded %d PDF(s)", downloaded)
 
 
+def _gmp_prediction_text(conn, company_id):
+    gmp_pct = db.get_latest_gmp_pct(conn, company_id)
+    if gmp_pct is None:
+        return "GMP not yet available."
+    return scoring.format_prediction(scoring.predict_listing_gain(gmp_pct))
+
+
 def send_pending_alert(conn):
     rows = db.get_unnotified_filings(conn)
     if not rows:
         log.info("No new filings to alert on")
         return
-    ok = notifier.send_alert(rows)
+    enriched_rows = []
+    for r in rows:
+        row = dict(r)
+        row["gmp_prediction"] = _gmp_prediction_text(conn, row["company_id"])
+        enriched_rows.append(row)
+    ok = notifier.send_alert(enriched_rows)
     if ok:
         db.mark_notified(conn, [r["id"] for r in rows])
         log.info("Sent alert email for %d filing(s)", len(rows))

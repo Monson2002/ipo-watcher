@@ -189,18 +189,32 @@ decisions:
    Model 1. `uv run analyze.py` now reproduces this doc's numbers exactly
    (R²=0.650, MAE=12.26, RMSE=16.55, n=147).
 2. ~~**A small, pure `predict_listing_gain(gmp_pct)` function**~~ —
-   **done, 2026-10-11.** `research/ipo-scoring-validation/score.py` —
-   frozen coefficients, the empirical percentile interval, the exact
-   output wording from this doc, and a runnable self-check
-   (`uv run score.py`).
+   **done, 2026-10-11.** `ipo_watcher/scoring.py` — frozen coefficients,
+   the empirical percentile interval, the exact output wording from this
+   doc, and `tests/test_scoring.py`. Originally written at
+   `research/ipo-scoring-validation/score.py`; moved into the live
+   package once `run.py` actually wired it into the email alert (see
+   item 4 below) — `research/` isn't an importable package and is meant
+   to stay the validation workspace, not live code.
 3. **Verify IPO Guru's API with a real test call** — **partially done,
    2026-10-11**: confirmed the endpoint is real (401 on an unauthenticated
    call, not a dead link). Still needs an actual key, which only a human
    can request by email — see the updated "Live data source" section
    above. Not something Claude can complete unassisted.
 
-Everything else (DB schema, `run.py` wiring, refresh cadence, refit
-cadence) stays deferred per the section above.
+4. ~~**Wire the score into the live collector's email alert**~~ — **done,
+   2026-10-11.** `run.py`'s `send_pending_alert` calls
+   `db.get_latest_gmp_pct` per filing's `company_id`, then
+   `scoring.predict_listing_gain`/`format_prediction` when a snapshot
+   exists, or the literal `"GMP not yet available."` otherwise — per this
+   doc's own "Output presentation" instruction to say so plainly, never a
+   blank/stale number. Applies to every row, including corrigenda (GMP
+   may have moved since the original filing). See
+   `tests/test_run.py::test_send_pending_alert_includes_predicted_gain_when_gmp_available`.
+
+Still deferred: refresh cadence (when in an IPO's lifecycle to
+recompute), refit cadence (retraining the formula itself as more outcomes
+accumulate).
 
 ## Open questions for the next pass
 

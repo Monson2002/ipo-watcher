@@ -37,7 +37,26 @@ def test_discover_download_and_alert_end_to_end(tmp_path, monkeypatch):
     mock_send.assert_called_once()
     sent_rows = mock_send.call_args[0][0]
     assert sent_rows[0]["company_name"] == "Test Co"
+    assert sent_rows[0]["gmp_prediction"] == "GMP not yet available."
     assert db.get_unnotified_filings(conn) == []
+
+    conn.close()
+
+
+def test_send_pending_alert_includes_predicted_gain_when_gmp_available(tmp_path):
+    conn = db.connect(str(tmp_path / "test4.db"))
+    db.init_db(conn)
+    db.upsert_filing(
+        conn, company_name="Priced Co", filing_type="DRHP", filing_date="2026-09-05",
+        document_url="https://x/1.pdf", source_page_url="https://x/1.html",
+    )
+    company_id, _ = db._get_or_create_company(conn, "Priced Co")
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=18.0)
+
+    with patch("ipo_watcher.run.notifier.send_alert", return_value=True) as mock_send:
+        run.send_pending_alert(conn)
+    sent_rows = mock_send.call_args[0][0]
+    assert "Predicted Listing Gain: +18.5%" in sent_rows[0]["gmp_prediction"]
 
     conn.close()
 
