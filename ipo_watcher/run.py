@@ -152,7 +152,7 @@ def send_gmp_update_alerts(conn):
         latest_pct = db.get_latest_gmp_pct(conn, company_id)
         if latest_pct is None:
             continue
-        if abs(latest_pct - last_notified) < GMP_MOVEMENT_THRESHOLD:
+        if round(abs(latest_pct - last_notified), 6) < GMP_MOVEMENT_THRESHOLD:
             continue
         company_row = conn.execute(
             "SELECT name FROM companies WHERE id = ?", (company_id,)

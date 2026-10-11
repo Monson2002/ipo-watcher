@@ -156,6 +156,18 @@ def test_send_gmp_update_alerts_sends_when_threshold_crossed(tmp_path):
     conn.close()
 
 
+def test_send_gmp_update_alerts_sends_on_exact_threshold_move_despite_float_rounding(tmp_path):
+    conn = db.connect(str(tmp_path / "gmp_update_boundary.db"))
+    db.init_db(conn)
+    _seed_company_with_history(conn, "Acme Robotics Ltd", last_notified_pct=4.20, latest_gmp_pct=9.20)
+
+    with patch("ipo_watcher.run.notifier.send_gmp_update_alert", return_value=True) as mock_send:
+        run.send_gmp_update_alerts(conn)
+
+    mock_send.assert_called_once()
+    conn.close()
+
+
 def test_send_gmp_update_alerts_triggers_on_decrease_too(tmp_path):
     conn = db.connect(str(tmp_path / "gmp_update2.db"))
     db.init_db(conn)
