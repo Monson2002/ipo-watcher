@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IPO-Watcher Recap</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+html{color-scheme:light dark}
+body{margin:0}
+img{max-width:100%}
+[hidden]{display:none!important}
+
+/* layout: a single-column technical manual - title block, numbered sections,
+   hairline rules, monospace data callouts, status badges per section */
+:root{
+  --bg:#f3f4f2; --surface:#ffffff; --ink:#1b2320; --ink-soft:#4b544f;
+  --line:#d7dad5; --accent:#2f6e63; --accent-ink:#163b34;
+  --done-bg:#e3efe4; --done-ink:#1e5c33;
+  --open-bg:#fdecd2; --open-ink:#8a5a06;
+  --defer-bg:#e7e6ef; --defer-ink:#4a4870;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#15181a; --surface:#1d2124; --ink:#e7eae6; --ink-soft:#aab2ac;
+    --line:#333936; --accent:#6fc1b0; --accent-ink:#bfe9df;
+    --done-bg:#163a26; --done-ink:#8fdba8;
+    --open-bg:#3d2d0f; --open-ink:#f2c46a;
+    --defer-bg:#2a2840; --defer-ink:#c2bfe8;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#15181a; --surface:#1d2124; --ink:#e7eae6; --ink-soft:#aab2ac;
+  --line:#333936; --accent:#6fc1b0; --accent-ink:#bfe9df;
+  --done-bg:#163a26; --done-ink:#8fdba8;
+  --open-bg:#3d2d0f; --open-ink:#f2c46a;
+  --defer-bg:#2a2840; --defer-ink:#c2bfe8;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink)}
+.page{max-width:760px;margin:0 auto;padding:28px 20px 64px}
+.mono{font-family:"IBM Plex Mono",ui-monospace,Consolas,monospace}
+h1,h2{font-family:"IBM Plex Sans",system-ui,sans-serif;text-wrap:balance}
+body,p,li,td,th{font-family:"IBM Plex Sans",system-ui,sans-serif}
+
+/* title block, like an engineering drawing's cover sheet */
+.titleblock{border:1px solid var(--line);background:var(--surface);border-radius:4px;overflow:hidden;margin-bottom:28px}
+.titleblock__top{padding:18px 20px 14px;border-bottom:1px solid var(--line)}
+.eyebrow{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 6px}
+h1{font-size:1.5rem;line-height:1.25;margin:0;font-weight:700}
+.titleblock__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));font-size:.82rem}
+.titleblock__grid div{padding:10px 20px;border-top:1px solid var(--line)}
+.titleblock__grid div:first-child{border-top:none}
+@media (min-width:480px){.titleblock__grid div{border-top:none;border-left:1px solid var(--line)}
+  .titleblock__grid div:first-child{border-left:none}}
+.titleblock__grid dt{font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 3px}
+.titleblock__grid dd{margin:0;font-weight:600}
+
+section{margin:30px 0}
+.sec-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:14px}
+.sec-num{font-family:"IBM Plex Mono",monospace;color:var(--ink-soft);font-size:.85rem}
+h2{font-size:1.05rem;margin:0;flex:1;min-width:0}
+p{line-height:1.6;margin:0 0 10px;max-width:62ch}
+p:last-child{margin-bottom:0}
+
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 9px;border-radius:99px;white-space:nowrap}
+.badge--done{background:var(--done-bg);color:var(--done-ink)}
+.badge--open{background:var(--open-bg);color:var(--open-ink)}
+.badge--defer{background:var(--defer-bg);color:var(--defer-ink)}
+
+.callout{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:4px;padding:14px 16px;margin:12px 0}
+.callout .formula{font-family:"IBM Plex Mono",monospace;font-size:1rem;color:var(--accent-ink);font-variant-numeric:tabular-nums}
+
+table{width:100%;border-collapse:collapse;font-size:.86rem;margin:10px 0}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+th{color:var(--ink-soft);font-weight:600;font-size:.72rem;letter-spacing:.04em;text-transform:uppercase}
+td.num{text-align:right;font-family:"IBM Plex Mono",monospace}
+
+.tasklist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.tasklist li{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;background:var(--surface);border:1px solid var(--line);border-radius:4px}
+.tasklist .tnum{font-family:"IBM Plex Mono",monospace;color:var(--ink-soft);font-size:.78rem;padding-top:1px}
+.tasklist p{margin:0}
+
+.chart{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:18px 18px 14px;margin:14px 0}
+.chart__caption{font-size:.74rem;color:var(--ink-soft);margin-top:8px;line-height:1.5}
+svg text{fill:var(--ink)}
+svg .soft{fill:var(--ink-soft)}
+svg .axis{stroke:var(--line)}
+
+.options{display:flex;flex-direction:column;gap:10px}
+.option{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:12px 14px}
+.option__label{font-family:"IBM Plex Mono",monospace;font-size:.78rem;color:var(--accent-ink);font-weight:700;margin-bottom:3px}
+
+footer{margin-top:40px;padding-top:14px;border-top:1px solid var(--line);font-size:.78rem;color:var(--ink-soft)}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="titleblock">
+    <div class="titleblock__top">
+      <p class="eyebrow">Status recap</p>
+      <h1>ipo-watcher &mdash; project recap</h1>
+    </div>
+    <div class="titleblock__grid">
+      <div><dt>Document date</dt><dd>2026-10-11</dd></div>
+      <div><dt>Period covered</dt><dd>2026-09-06 to 2026-09-20</dd></div>
+      <div><dt>Writing standard</dt><dd>ASD&ndash;STE100</dd></div>
+      <div><dt>Open tasks</dt><dd>1</dd></div>
+    </div>
+  </div>
+
+  <p>This document gives a status recap of the ipo-watcher project. Read this document before you decide the next step.</p>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <h2>Phase 1 &mdash; the filing collector</h2>
+      <span class="badge badge--done">Done</span>
+    </div>
+    <p>The ipo-watcher project has two phases. Phase 1 is a filing collector for the SEBI public issues list. Phase 2 is a score for the listing gain of a new IPO.</p>
+    <p>Phase 1 is complete. Phase 1 finds new filings, downloads the PDF, and sends one email alert. Phase 1 is stable. No new work is necessary now.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <h2>Phase 2 &mdash; the listing gain score</h2>
+      <span class="badge badge--done">Formula coded</span>
+    </div>
+    <p>Phase 2 is a research task. The task identified the best feature for a listing gain score. The feature is the grey market premium, in percent. The short name of this feature is GMP percent.</p>
+    <p>The team tested seven fundamental ratios and one subscription ratio. None of these features added value to the score. Only GMP percent gives a result with a p-value below 0.05.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <h2>The formula</h2>
+    </div>
+    <p>The team set a formula for the score. The formula is a linear equation. The formula uses GMP percent as the only input.</p>
+    <div class="callout">
+      <div class="formula">predicted_listing_gain_% = &minus;0.2206 + 1.0428 &times; GMP_%</div>
+    </div>
+    <p>The team tested the formula against three years of past IPO data. The data set has 147 IPOs with a known GMP percent. The time-based test is the primary test for this project.</p>
+    <table>
+      <tr><th>Measure</th><th>Value</th></tr>
+      <tr><td>Time-based R-squared</td><td class="num">0.650</td></tr>
+      <tr><td>Mean absolute error</td><td class="num">12.26 points</td></tr>
+      <tr><td>IPOs in the test</td><td class="num">147</td></tr>
+    </table>
+    <p>This is the best result in the project until now.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <h2>A known risk: the error range is not symmetric</h2>
+    </div>
+    <p>The mean absolute error of the formula is 12.26 points. This number is not a hard range for a single IPO. The real range of past errors is not symmetric. The range skews to the high side. One past IPO listed 74.6 points above its predicted value.</p>
+
+    <div class="chart">
+      <svg viewBox="0 0 680 150" width="100%" role="img" aria-label="Predicted listing gain of 18.4 percent, with a range of negative 4 percent to positive 48 percent from past errors">
+        <!-- scale: domain -10 to 60 maps to x 40 to 640 (8.571 px per unit) -->
+        <line class="axis" x1="40" y1="100" x2="640" y2="100" stroke-width="1"/>
+        <g font-size="11" text-anchor="middle">
+          <line class="axis" x1="125.71" y1="96" x2="125.71" y2="104"/>
+          <text class="soft" x="125.71" y="120">0%</text>
+          <line class="axis" x1="297.14" y1="96" x2="297.14" y2="104"/>
+          <text class="soft" x="297.14" y="120">20%</text>
+          <line class="axis" x1="468.57" y1="96" x2="468.57" y2="104"/>
+          <text class="soft" x="468.57" y="120">40%</text>
+          <line class="axis" x1="640" y1="96" x2="640" y2="104"/>
+          <text class="soft" x="632" y="120">60%</text>
+        </g>
+        <!-- interval band: -4 to 48 -> x 91.43 to 537.14 -->
+        <rect x="91.43" y="88" width="445.71" height="24" rx="4" fill="var(--accent)" opacity="0.22"/>
+        <line x1="91.43" y1="88" x2="91.43" y2="112" stroke="var(--accent)" stroke-width="2"/>
+        <line x1="537.14" y1="88" x2="537.14" y2="112" stroke="var(--accent)" stroke-width="2"/>
+        <!-- point estimate at 18.4 -> x 283.43 -->
+        <circle cx="283.43" cy="100" r="6" fill="var(--accent)"/>
+        <text x="283.43" y="70" text-anchor="middle" font-weight="700" font-size="13">Predicted +18.4%</text>
+        <text x="91.43" y="138" text-anchor="middle" font-size="11" class="soft">&minus;4%</text>
+        <text x="537.14" y="138" text-anchor="middle" font-size="11" class="soft">+48%</text>
+      </svg>
+      <p class="chart__caption">A worked example. A predicted value of +18.4% has a past-error range from about &minus;4% to +48% (5th to 95th percentile). The band is not centered on the dot &mdash; big positive surprises are more frequent than big negative ones.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">05</span>
+      <h2>Output format</h2>
+    </div>
+    <p>The design spec sets the correct output format. The output format must show the predicted value. The output format must also show the 5th percentile and the 95th percentile of past errors. The output format must show a disclaimer. The disclaimer identifies GMP data as informal data.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">06</span>
+      <h2>Data source</h2>
+      <span class="badge badge--open">Endpoint confirmed, key pending</span>
+    </div>
+    <p>The team selected the IPO Guru free API as the data source. The project does not use cloud services. This is a standard for the project.</p>
+    <p>The team tested the IPO Guru API without a key. The API gave a 401 response. A 401 response means that the API is real. A 401 response also means that the API needs a key. The team does not have a key now. A person must request a key by email, and wait for a reply.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">07</span>
+      <h2>Open tasks</h2>
+    </div>
+    <ol class="tasklist">
+      <li><span class="tnum">&#10003;</span><p>Added the GMP-percent-only model to the analyze script. The script now gives these exact numbers.</p></li>
+      <li><span class="tnum">&#10003;</span><p>Wrote the prediction function in a new file, score.py. The function has a self-check.</p></li>
+      <li><span class="tnum">01</span><p>Request an API key from IPO Guru, then confirm the shape of the GMP percent field in a real response. A person must do this step.</p></li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">08</span>
+      <h2>Out of scope for now</h2>
+      <span class="badge badge--defer">Deferred</span>
+    </div>
+    <p>Four items stay out of scope for now: the database schema, the email integration, the refresh schedule, and the refit schedule.</p>
+  </section>
+
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">09</span>
+      <h2>Next step options</h2>
+    </div>
+    <p>Three options exist for the next step. Select one option, or tell Claude to do more than one option.</p>
+    <div class="options">
+      <div class="option"><div class="option__label">Option A</div><p>Request an API key from IPO Guru. Confirm the shape of the GMP percent field in a real response. A person must do this step.</p></div>
+      <div class="option"><div class="option__label">Option B</div><p>Design the database schema for GMP data. Set the fields and the table names.</p></div>
+      <div class="option"><div class="option__label">Option C</div><p>Design the wiring of the score into the live collector. Set the point in the IPO process to compute the score.</p></div>
+    </div>
+  </section>
+
+  <footer>Source documents: FINDINGS.md, the 2026-09-20 scoring formula design spec, and JOURNAL.md.</footer>
+</div>
+</body>
+</html>
