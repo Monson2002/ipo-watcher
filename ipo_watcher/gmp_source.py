@@ -15,7 +15,7 @@ USER_AGENT = "Mozilla/5.0 (compatible; ipo-watcher/1.0)"
 TIMEOUT = 20
 MAX_RETRIES = 3
 RETRY_SLEEP_SECONDS = 3
-IPOS_URL = "https://www.ipoguru.in/api/v1/ipos"
+IPOS_URL = "https://www.ipoguru.in/api/v2/ipos?months=0"
 
 _SUFFIX_RE = re.compile(r"\b(ltd|limited|pvt|private|ipo)\b\.?", re.IGNORECASE)
 _CLOSE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")

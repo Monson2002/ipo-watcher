@@ -191,6 +191,16 @@ def test_match_company_picks_lowest_id_on_normalization_collision(conn, caplog):
     assert "Multiple companies normalize" in caplog.text
 
 
+def test_fetch_gmp_listing_uses_v2_endpoint_with_no_month_limit():
+    fake_response = MagicMock()
+    fake_response.json.return_value = {"success": True, "data": []}
+    fake_response.raise_for_status = MagicMock()
+    with patch("ipo_watcher.gmp_source.requests.get", return_value=fake_response) as mock_get:
+        fetch_gmp_listing()
+    args, _ = mock_get.call_args
+    assert args[0] == "https://www.ipoguru.in/api/v2/ipos?months=0"
+
+
 def test_fetch_gmp_listing_sends_api_key_header_and_returns_json(monkeypatch):
     monkeypatch.setattr("ipo_watcher.gmp_source.config.IPO_GURU_API_KEY", "test-key-123")
     fake_response = MagicMock()
