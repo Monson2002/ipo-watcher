@@ -295,3 +295,40 @@ happened and why*, not the technical detail.
   of mistake as the first audit — neither mentioned `gmp_notifications`,
   `send_gmp_update_alerts`, or any of this work. Fixed both.
 - Tests: 91/91 passing throughout this whole arc.
+
+## 2026-10-25 — a real API key, a near-miss, and the v1-to-v2 fix it surfaced
+
+- Wrote a fresh status report (`docs/recaps/2026-10-11-status-report.html`)
+  in ASD-STE100 style, published as an artifact, for review this week —
+  what works, what the review process caught, and the handful of
+  remaining open items.
+- Got a real IPO Guru API key. Confirmed it immediately with a real
+  `/me` call before touching any code — plan `free`, 10/day, 1/minute,
+  `gmp_history_days: 0`. Stored it in `.env` only, never in a committed
+  file.
+- Caught a real near-miss along the way: `.env.example` (tracked by git,
+  meant to hold only placeholders) briefly had a real Gmail app password
+  and other live credentials sitting in it on disk, mid-edit. Confirmed
+  via `git diff HEAD` that nothing had been committed or pushed yet, and
+  flagged it immediately rather than touching the file myself while it
+  was actively being edited. It got cleared before anything landed in
+  git history.
+- A real `/ipos` call surfaced something no amount of documentation
+  reading would have: IPO Guru's `/api/v1` is retired. The live poller
+  has been pointing at a dead endpoint this whole time and has never
+  actually run against real data.
+- Fetched the real v2 reference and checked it field by field against
+  what `gmp_source.py` already assumed. Almost everything matched
+  exactly — the defensive parsing written before any real key existed
+  turned out correct on the first real response. Two real findings: the
+  `/ipos` endpoint defaults to a 3-month window (an undocumented limit,
+  removed with `months=0`), and `/gmp` — the obviously-named
+  alternative — turns out to omit `close_date`/`is_listed` entirely,
+  which would have silently broken the update-alerts stopping condition
+  had I switched to it for being "simpler."
+- Wrote the spec and plan, then the whole fix was one line:
+  `IPOS_URL` from the dead v1 path to the real v2 one, plus a regression
+  test pinning the exact URL string. Self-reviewed it rather than
+  dispatching a fresh reviewer — genuinely too small a change to be
+  worth a second context.
+- Tests: 92/92.
