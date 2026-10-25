@@ -345,3 +345,10 @@ happened and why*, not the technical detail.
   applies to all of them immediately. The pipeline works; it just has no
   live target yet. That starts mattering the next time the SEBI
   collector discovers a filing still in its bidding window.
+- Looked into actually deploying this. Confirmed nothing is installed
+  anywhere real — not on any server, not even a cron daemon running on
+  my own WSL machine. Oracle's free tier wanted a card for identity
+  verification, which I do not have. No spare always-on machine at home
+  either right now. Deployment stays blocked on infrastructure access,
+  not on anything code-related — parked until I have a card or a machine
+  that can stay on.
