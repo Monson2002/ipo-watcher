@@ -16,7 +16,15 @@ confirmed the actual contract:
 
 - `GET /api/v2/me` — confirms the key, plan (`free`), and real daily
   usage (`limits.per_minute: 1`, `limits.per_day: 10`,
-  `limits.gmp_history_days: 0`).
+  `limits.gmp_history_days: 0`). **Note for future manual testing**:
+  `/me` counts against the same 10/day quota as every other call — do
+  not call it defensively before each real request just to check
+  remaining quota first, since that burns the budget faster than simply
+  making the real call. The poller's own code already handles a 429
+  gracefully (logs it, aborts that poll cleanly, writes zero snapshots),
+  so there is no correctness reason to pre-check quota either in code or
+  by hand. Reserve `/me` for when the usage/plan data is itself what is
+  being asked for.
 - `GET /api/v2/ipos` — a real 165-entry response, matching the field
   shapes this project already assumed.
 
