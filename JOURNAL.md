@@ -332,3 +332,16 @@ happened and why*, not the technical detail.
   dispatching a fresh reviewer — genuinely too small a change to be
   worth a second context.
 - Tests: 92/92.
+- Ran the poller for real for the first time ever, against real data.
+  Hit the 1/minute burst limit twice before timing it correctly — a
+  `/me` check and a poll in the same minute is already too many calls.
+  Once it ran clean: 7 matched, 257 unmatched, 83 skipped. The large
+  unmatched/skipped counts are expected, not bugs — IPO Guru tracks
+  hundreds of historical IPOs against the 9 companies our own collector
+  has actually discovered, and many of those are old enough that their
+  GMP data has gone stale. The one real finding: all 7 matched companies
+  already show `is_listed: true` — every filing discovered so far has
+  already completed listing, so the update-alert stopping condition
+  applies to all of them immediately. The pipeline works; it just has no
+  live target yet. That starts mattering the next time the SEBI
+  collector discovers a filing still in its bidding window.
