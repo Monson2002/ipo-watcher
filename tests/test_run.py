@@ -112,6 +112,28 @@ def test_send_pending_alert_does_not_record_baseline_when_gmp_not_available(tmp_
     conn.close()
 
 
+def test_main_skips_pdf_download_when_flag_set(tmp_path, monkeypatch):
+    monkeypatch.setattr(run.config, "DB_PATH", str(tmp_path / "main_test1.db"))
+    with patch("ipo_watcher.run.discover_new_filings") as mock_discover, \
+         patch("ipo_watcher.run.download_pending_pdfs") as mock_download, \
+         patch("ipo_watcher.run.send_pending_alert") as mock_alert:
+        run.main(skip_pdf_download=True)
+    mock_discover.assert_called_once()
+    mock_download.assert_not_called()
+    mock_alert.assert_called_once()
+
+
+def test_main_downloads_pdfs_by_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(run.config, "DB_PATH", str(tmp_path / "main_test2.db"))
+    with patch("ipo_watcher.run.discover_new_filings") as mock_discover, \
+         patch("ipo_watcher.run.download_pending_pdfs") as mock_download, \
+         patch("ipo_watcher.run.send_pending_alert") as mock_alert:
+        run.main()
+    mock_discover.assert_called_once()
+    mock_download.assert_called_once()
+    mock_alert.assert_called_once()
+
+
 def test_discover_new_filings_skips_detail_fetch_for_known_rows(tmp_path):
     conn = db.connect(str(tmp_path / "test3.db"))
     db.init_db(conn)

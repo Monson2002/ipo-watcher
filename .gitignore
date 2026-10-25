@@ -1,5 +1,6 @@
 .env
-data/
+data/*
+!data/ipo_watcher.db
 logs/
 __pycache__/
 *.pyc

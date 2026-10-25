@@ -174,14 +174,15 @@ def send_gmp_update_alerts(conn):
             log.error("Failed to send GMP update alert for %d compan%s", len(rows), plural)
 
 
-def main():
+def main(skip_pdf_download=False):
     setup_logging()
     os.makedirs(os.path.dirname(config.DB_PATH) or ".", exist_ok=True)
     conn = db.connect(config.DB_PATH)
     db.init_db(conn)
     try:
         discover_new_filings(conn)
-        download_pending_pdfs(conn)
+        if not skip_pdf_download:
+            download_pending_pdfs(conn)
         send_pending_alert(conn)
     except Exception:
         log.exception("Unhandled error in ipo_watcher run")
@@ -191,4 +192,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--skip-pdf-download", action="store_true")
+    args = parser.parse_args()
+    main(skip_pdf_download=args.skip_pdf_download)
