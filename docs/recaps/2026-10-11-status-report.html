@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>IPO Watcher Status Report</title>
+<style>
+  :root {
+    --bg: #faf9f7;
+    --surface: #ffffff;
+    --border: #e4e0d8;
+    --ink: #1f1b16;
+    --ink-muted: #6b6354;
+    --accent: #8a5a2b;
+    --good: #2f6b3f;
+    --good-bg: #e6f0e8;
+    --open: #8a5a00;
+    --open-bg: #fbeedc;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17140f;
+      --surface: #211d17;
+      --border: #39322688;
+      --ink: #f2ede3;
+      --ink-muted: #b6ab96;
+      --accent: #d99b5a;
+      --good: #7fd49a;
+      --good-bg: #1d3023;
+      --open: #e8b85c;
+      --open-bg: #332a14;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #17140f;
+    --surface: #211d17;
+    --border: #39322688;
+    --ink: #f2ede3;
+    --ink-muted: #b6ab96;
+    --accent: #d99b5a;
+    --good: #7fd49a;
+    --good-bg: #1d3023;
+    --open: #e8b85c;
+    --open-bg: #332a14;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    padding: calc(28px + env(safe-area-inset-top, 0px)) 16px calc(40px + env(safe-area-inset-bottom, 0px));
+  }
+  main {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+  header h1 {
+    font-size: 1.7rem;
+    margin: 0 0 4px;
+    text-wrap: balance;
+  }
+  header p.sub {
+    color: var(--ink-muted);
+    margin: 0 0 28px;
+    font-size: 0.95rem;
+  }
+  .stats {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 28px;
+  }
+  .stat {
+    flex: 1 1 160px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .stat .num {
+    font-size: 1.9rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .label {
+    color: var(--ink-muted);
+    font-size: 0.82rem;
+    margin-top: 2px;
+  }
+  section {
+    margin-bottom: 26px;
+  }
+  h2 {
+    font-size: 1.05rem;
+    margin: 0 0 10px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  h2 .no {
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+  }
+  p { margin: 0 0 10px; }
+  ul { margin: 0; padding-left: 1.2em; }
+  li { margin-bottom: 6px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .status-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .status-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .status-list li:last-child { border-bottom: none; }
+  .dot {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-top: 6px;
+  }
+  .dot.done { background: var(--good); }
+  .dot.open { background: var(--open); }
+  .tag {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 1px 7px;
+    border-radius: 999px;
+    margin-left: 6px;
+  }
+  .tag.done { color: var(--good); background: var(--good-bg); }
+  .tag.open { color: var(--open); background: var(--open-bg); }
+  .action-card {
+    border: 1px solid var(--open);
+    background: var(--open-bg);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .action-card h2 { color: var(--open); }
+  footer {
+    color: var(--ink-muted);
+    font-size: 0.82rem;
+    margin-top: 36px;
+    border-top: 1px solid var(--border);
+    padding-top: 14px;
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>IPO Watcher Status Report</h1>
+    <p class="sub">This report gives the status of the IPO Watcher project. Read this report before the review next week.</p>
+  </header>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="num">91</div>
+      <div class="label">automated tests, all pass</div>
+    </div>
+    <div class="stat">
+      <div class="num">10</div>
+      <div class="label">free API requests allowed each day</div>
+    </div>
+    <div class="stat">
+      <div class="num">0</div>
+      <div class="label">servers in real use today</div>
+    </div>
+  </div>
+
+  <section class="card">
+    <h2><span class="no">01</span> What works now</h2>
+    <ul>
+      <li>The collector finds new filings on the SEBI website, downloads each document, and sends one email for all new filings. <span class="tag done">done</span></li>
+      <li>The GMP poller gets the grey market premium for each tracked company, matches it to a company record, and stores the result. <span class="tag done">done</span></li>
+      <li>The scoring formula uses the grey market premium to predict the listing gain. The email shows this prediction for each filing, as a range from past results, not a single guess. <span class="tag done">done</span></li>
+      <li>The update alert checks the grey market premium after the first email and sends a new email when the premium moves five percentage points or more. The alert stops after the company lists its shares or the bid window closes. <span class="tag done">done</span></li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2><span class="no">02</span> What a review process found</h2>
+    <p>A review process checked the code before each commit and found real defects. The process fixed each defect that it found.</p>
+    <ul>
+      <li>One defect was a wrong retry on bad data from the API.</li>
+      <li>One defect gave a wrong result from float math at an exact value.</li>
+      <li>One defect kept a record of an email that failed to send.</li>
+    </ul>
+  </section>
+
+  <section class="card">
+    <h2><span class="no">03</span> What remains</h2>
+    <ul class="status-list">
+      <li><span class="dot open"></span><span>The project does not use a real API key yet.</span></li>
+      <li><span class="dot open"></span><span>The project has no test with real data from the API yet.</span></li>
+      <li><span class="dot open"></span><span>The project has no server for the collector and the poller yet.</span></li>
+      <li><span class="dot open"></span><span>The project has no plan to retrain the formula again later.</span></li>
+      <li><span class="dot open"></span><span>The project has no decision about old records in the database.</span></li>
+      <li><span class="dot open"></span><span>The project has no review of the email volume after real use.</span></li>
+    </ul>
+  </section>
+
+  <section class="action-card">
+    <h2><span class="no">04</span> Actions for you</h2>
+    <ul>
+      <li>Send a request for an API key to IPO Guru.</li>
+      <li>Choose a server for the collector and the poller.</li>
+    </ul>
+  </section>
+
+  <footer>
+    IPO Watcher &middot; status report &middot; written for the review next week
+  </footer>
+</main>
+</body>
+</html>
