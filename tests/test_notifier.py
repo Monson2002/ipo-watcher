@@ -43,45 +43,105 @@ def test_build_email_body_includes_gmp_prediction_per_row():
 
 
 from unittest.mock import patch, MagicMock
+import requests
 
 
-def test_send_alert_returns_true_and_uses_smtp(monkeypatch):
-    monkeypatch.setattr(notifier.config, "SMTP_HOST", "smtp.example.com")
-    monkeypatch.setattr(notifier.config, "SMTP_PORT", 587)
-    monkeypatch.setattr(notifier.config, "SMTP_USER", "me@example.com")
-    monkeypatch.setattr(notifier.config, "SMTP_PASSWORD", "secret")
-    monkeypatch.setattr(notifier.config, "ALERT_FROM", "me@example.com")
+def test_send_alert_returns_true_and_posts_to_resend(monkeypatch):
+    monkeypatch.setattr(notifier.config, "RESEND_API_KEY", "re_test_key", raising=False)
+    monkeypatch.setattr(notifier.config, "ALERT_FROM", "onboarding@resend.dev")
     monkeypatch.setattr(notifier.config, "ALERT_TO", "me@example.com")
 
-    fake_smtp = MagicMock()
-    fake_smtp.__enter__ = MagicMock(return_value=fake_smtp)
-    fake_smtp.__exit__ = MagicMock(return_value=False)
+    fake_response = MagicMock()
+    fake_response.raise_for_status = MagicMock()
 
-    with patch("ipo_watcher.notifier.smtplib.SMTP", return_value=fake_smtp) as mock_smtp_cls:
+    with patch("ipo_watcher.notifier.requests.post", return_value=fake_response) as mock_post:
         ok = notifier.send_alert(ROWS)
 
     assert ok is True
-    mock_smtp_cls.assert_called_once_with("smtp.example.com", 587, timeout=30)
-    fake_smtp.starttls.assert_called_once()
-    fake_smtp.login.assert_called_once_with("me@example.com", "secret")
-    fake_smtp.send_message.assert_called_once()
+    mock_post.assert_called_once_with(
+        "https://api.resend.com/emails",
+        headers={"Authorization": "Bearer re_test_key"},
+        json={
+            "from": "onboarding@resend.dev",
+            "to": ["me@example.com"],
+            "subject": notifier.build_email_subject(ROWS),
+            "text": notifier.build_email_body(ROWS),
+        },
+        timeout=30,
+    )
+    fake_response.raise_for_status.assert_called_once()
 
 
-def test_send_alert_returns_false_on_smtp_error(monkeypatch):
-    monkeypatch.setattr(notifier.config, "SMTP_HOST", "smtp.example.com")
-    monkeypatch.setattr(notifier.config, "SMTP_PORT", 587)
+def test_send_alert_returns_false_on_connection_error(monkeypatch):
+    monkeypatch.setattr(notifier.config, "RESEND_API_KEY", "re_test_key", raising=False)
+    monkeypatch.setattr(notifier.config, "ALERT_FROM", "onboarding@resend.dev")
+    monkeypatch.setattr(notifier.config, "ALERT_TO", "me@example.com")
 
-    with patch("ipo_watcher.notifier.smtplib.SMTP", side_effect=OSError("boom")):
+    with patch(
+        "ipo_watcher.notifier.requests.post",
+        side_effect=requests.exceptions.ConnectionError("boom"),
+    ):
         ok = notifier.send_alert(ROWS)
 
     assert ok is False
 
 
+def test_send_alert_returns_false_on_non_2xx_response(monkeypatch):
+    monkeypatch.setattr(notifier.config, "RESEND_API_KEY", "re_test_key", raising=False)
+    monkeypatch.setattr(notifier.config, "ALERT_FROM", "onboarding@resend.dev")
+    monkeypatch.setattr(notifier.config, "ALERT_TO", "someone-else@example.com")
+
+    fake_response = MagicMock()
+    fake_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+        "403 Client Error: Forbidden"
+    )
+
+    with patch("ipo_watcher.notifier.requests.post", return_value=fake_response):
+        ok = notifier.send_alert(ROWS)
+
+    assert ok is False
+
+
+def test_send_email_logs_resend_response_body_on_http_error(monkeypatch, caplog):
+    monkeypatch.setattr(notifier.config, "RESEND_API_KEY", "re_test_key", raising=False)
+    monkeypatch.setattr(notifier.config, "ALERT_FROM", "onboarding@resend.dev")
+    monkeypatch.setattr(notifier.config, "ALERT_TO", "someone-else@example.com")
+
+    fake_response = MagicMock()
+    fake_response.text = '{"message": "You can only send testing emails to your own email address"}'
+    http_error = requests.exceptions.HTTPError("403 Client Error: Forbidden")
+    http_error.response = fake_response
+    fake_response.raise_for_status.side_effect = http_error
+
+    with patch("ipo_watcher.notifier.requests.post", return_value=fake_response):
+        with caplog.at_level("WARNING"):
+            ok = notifier.send_alert(ROWS)
+
+    assert ok is False
+    assert "own email address" in caplog.text
+
+
+def test_send_email_logs_without_response_body_on_connection_error(monkeypatch, caplog):
+    monkeypatch.setattr(notifier.config, "RESEND_API_KEY", "re_test_key", raising=False)
+    monkeypatch.setattr(notifier.config, "ALERT_FROM", "onboarding@resend.dev")
+    monkeypatch.setattr(notifier.config, "ALERT_TO", "me@example.com")
+
+    with patch(
+        "ipo_watcher.notifier.requests.post",
+        side_effect=requests.exceptions.ConnectionError("boom"),
+    ):
+        with caplog.at_level("WARNING"):
+            ok = notifier.send_alert(ROWS)
+
+    assert ok is False
+    assert "Resend send failed" in caplog.text
+
+
 def test_send_alert_returns_true_and_sends_nothing_when_no_rows():
-    with patch("ipo_watcher.notifier.smtplib.SMTP") as mock_smtp_cls:
+    with patch("ipo_watcher.notifier.requests.post") as mock_post:
         ok = notifier.send_alert([])
     assert ok is True
-    mock_smtp_cls.assert_not_called()
+    mock_post.assert_not_called()
 
 
 GMP_UPDATE_ROWS = [
@@ -120,26 +180,22 @@ def test_build_gmp_update_body_includes_closing_today_note_only_when_true():
 
 
 def test_send_gmp_update_alert_returns_true_and_sends_nothing_when_no_rows():
-    with patch("ipo_watcher.notifier.smtplib.SMTP") as mock_smtp_cls:
+    with patch("ipo_watcher.notifier.requests.post") as mock_post:
         ok = notifier.send_gmp_update_alert([])
     assert ok is True
-    mock_smtp_cls.assert_not_called()
+    mock_post.assert_not_called()
 
 
-def test_send_gmp_update_alert_uses_smtp(monkeypatch):
-    monkeypatch.setattr(notifier.config, "SMTP_HOST", "smtp.example.com")
-    monkeypatch.setattr(notifier.config, "SMTP_PORT", 587)
-    monkeypatch.setattr(notifier.config, "SMTP_USER", "me@example.com")
-    monkeypatch.setattr(notifier.config, "SMTP_PASSWORD", "secret")
-    monkeypatch.setattr(notifier.config, "ALERT_FROM", "me@example.com")
+def test_send_gmp_update_alert_posts_to_resend(monkeypatch):
+    monkeypatch.setattr(notifier.config, "RESEND_API_KEY", "re_test_key", raising=False)
+    monkeypatch.setattr(notifier.config, "ALERT_FROM", "onboarding@resend.dev")
     monkeypatch.setattr(notifier.config, "ALERT_TO", "me@example.com")
 
-    fake_smtp = MagicMock()
-    fake_smtp.__enter__ = MagicMock(return_value=fake_smtp)
-    fake_smtp.__exit__ = MagicMock(return_value=False)
+    fake_response = MagicMock()
+    fake_response.raise_for_status = MagicMock()
 
-    with patch("ipo_watcher.notifier.smtplib.SMTP", return_value=fake_smtp):
+    with patch("ipo_watcher.notifier.requests.post", return_value=fake_response) as mock_post:
         ok = notifier.send_gmp_update_alert(GMP_UPDATE_ROWS)
 
     assert ok is True
-    fake_smtp.send_message.assert_called_once()
+    mock_post.assert_called_once()

@@ -40,10 +40,7 @@ jobs:
       - name: Run the GMP poller
         run: uv run python -m ipo_watcher.gmp_source
         env:
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           ALERT_FROM: ${{ secrets.ALERT_FROM }}
           ALERT_TO: ${{ secrets.ALERT_TO }}
           IPO_GURU_API_KEY: ${{ secrets.IPO_GURU_API_KEY }}

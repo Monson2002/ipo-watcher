@@ -1,6 +1,6 @@
 import logging
-import smtplib
-from email.message import EmailMessage
+
+import requests
 
 from . import config
 
@@ -27,19 +27,24 @@ def build_email_body(rows):
 
 
 def _send_email(subject, body):
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = config.ALERT_FROM
-    msg["To"] = config.ALERT_TO
-    msg.set_content(body)
     try:
-        with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT, timeout=30) as smtp:
-            smtp.starttls()
-            smtp.login(config.SMTP_USER, config.SMTP_PASSWORD)
-            smtp.send_message(msg)
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {config.RESEND_API_KEY}"},
+            json={
+                "from": config.ALERT_FROM,
+                "to": [config.ALERT_TO],
+                "subject": subject,
+                "text": body,
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
         return True
-    except (smtplib.SMTPException, OSError) as exc:
-        log.warning("SMTP send failed: %s", exc)
+    except requests.RequestException as exc:
+        response = getattr(exc, "response", None)
+        detail = f" - {response.text}" if response is not None else ""
+        log.warning("Resend send failed: %s%s", exc, detail)
         return False
 
 
