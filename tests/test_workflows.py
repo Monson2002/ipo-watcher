@@ -46,10 +46,7 @@ def test_collector_workflow_secret_names_match_config():
     wf = _load("sebi-collector.yml")
     step = _find_step(wf, lambda s: "ipo_watcher.run" in s.get("run", ""))
     env = step.get("env", {})
-    assert set(env.keys()) == {
-        "SMTP_HOST", "SMTP_PORT", "SMTP_USER",
-        "SMTP_PASSWORD", "ALERT_FROM", "ALERT_TO",
-    }
+    assert set(env.keys()) == {"RESEND_API_KEY", "ALERT_FROM", "ALERT_TO"}
     for value in env.values():
         assert value.startswith("${{ secrets.")
 
@@ -88,10 +85,7 @@ def test_poller_workflow_secret_names_match_config():
     wf = _load("gmp-poller.yml")
     step = _find_step(wf, lambda s: "ipo_watcher.gmp_source" in s.get("run", ""))
     env = step.get("env", {})
-    assert set(env.keys()) == {
-        "SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASSWORD",
-        "ALERT_FROM", "ALERT_TO", "IPO_GURU_API_KEY",
-    }
+    assert set(env.keys()) == {"RESEND_API_KEY", "ALERT_FROM", "ALERT_TO", "IPO_GURU_API_KEY"}
     for value in env.values():
         assert value.startswith("${{ secrets.")
 

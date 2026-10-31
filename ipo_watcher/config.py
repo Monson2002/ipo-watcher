@@ -16,11 +16,8 @@ def _env(name, default=""):
     return os.environ.get(name) or default
 
 
-SMTP_HOST = _env("SMTP_HOST")
-SMTP_PORT = int(_env("SMTP_PORT", "587"))
-SMTP_USER = _env("SMTP_USER")
-SMTP_PASSWORD = _env("SMTP_PASSWORD")
-ALERT_FROM = _env("ALERT_FROM", SMTP_USER)
+RESEND_API_KEY = _env("RESEND_API_KEY")
+ALERT_FROM = _env("ALERT_FROM", "onboarding@resend.dev")
 ALERT_TO = _env("ALERT_TO")
 
 IPO_GURU_API_KEY = _env("IPO_GURU_API_KEY")
