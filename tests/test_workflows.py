@@ -106,3 +106,19 @@ def test_poller_workflow_installs_without_dev_dependencies():
     wf = _load("gmp-poller.yml")
     step = _find_step(wf, lambda s: "uv sync" in s.get("run", ""))
     assert step["run"] == "uv sync --no-dev"
+
+
+def test_collector_workflow_run_step_also_skips_dev_dependencies():
+    # `uv run` performs its own implicit sync (including the dev group)
+    # regardless of an earlier separate `uv sync --no-dev` step — confirmed
+    # live on 2026-11-01, when a manually-triggered run still downloaded
+    # scipy/matplotlib/jupyterlab at the "Run the SEBI collector" step.
+    wf = _load("sebi-collector.yml")
+    step = _find_step(wf, lambda s: "ipo_watcher.run" in s.get("run", ""))
+    assert "uv run --no-dev" in step["run"]
+
+
+def test_poller_workflow_run_step_also_skips_dev_dependencies():
+    wf = _load("gmp-poller.yml")
+    step = _find_step(wf, lambda s: "ipo_watcher.gmp_source" in s.get("run", ""))
+    assert "uv run --no-dev" in step["run"]

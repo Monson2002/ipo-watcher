@@ -38,7 +38,7 @@ jobs:
         run: uv sync --no-dev
 
       - name: Run the GMP poller
-        run: uv run python -m ipo_watcher.gmp_source
+        run: uv run --no-dev python -m ipo_watcher.gmp_source
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           ALERT_FROM: ${{ secrets.ALERT_FROM }}

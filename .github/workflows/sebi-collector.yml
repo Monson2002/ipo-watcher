@@ -29,7 +29,7 @@ jobs:
         run: uv sync --no-dev
 
       - name: Run the SEBI collector
-        run: uv run python -m ipo_watcher.run --skip-pdf-download
+        run: uv run --no-dev python -m ipo_watcher.run --skip-pdf-download
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           ALERT_FROM: ${{ secrets.ALERT_FROM }}
