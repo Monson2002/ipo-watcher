@@ -42,6 +42,29 @@ def test_build_email_body_includes_gmp_prediction_per_row():
     assert "GMP not yet available." in body
 
 
+def test_build_email_html_labels_new_vs_existing_company():
+    html_body = notifier.build_email_html(ROWS)
+    assert "New company" in html_body
+    assert "Example Textiles Ltd" in html_body
+    assert "DRHP filed 2026-09-05" in html_body
+    assert "https://www.sebi.gov.in/sebi_data/attachdocs/sep-2026/1.pdf" in html_body
+    assert "Existing company" in html_body
+    assert "Acme Robotics Ltd" in html_body
+
+
+def test_build_email_html_includes_gmp_prediction_per_row():
+    html_body = notifier.build_email_html(ROWS)
+    assert "Predicted Listing Gain: +18.5%" in html_body
+    assert "GMP not yet available." in html_body
+
+
+def test_build_email_html_escapes_company_name():
+    rows = [dict(ROWS[0], company_name="Acme & Sons <Ltd>")]
+    html_body = notifier.build_email_html(rows)
+    assert "Acme & Sons <Ltd>" not in html_body
+    assert "Acme &amp; Sons &lt;Ltd&gt;" in html_body
+
+
 from unittest.mock import patch, MagicMock
 import requests
 
@@ -66,6 +89,7 @@ def test_send_alert_returns_true_and_posts_to_resend(monkeypatch):
             "to": ["me@example.com"],
             "subject": notifier.build_email_subject(ROWS),
             "text": notifier.build_email_body(ROWS),
+            "html": notifier.build_email_html(ROWS),
         },
         timeout=30,
     )
@@ -177,6 +201,19 @@ def test_build_gmp_update_body_includes_closing_today_note_only_when_true():
     body = notifier.build_gmp_update_body(GMP_UPDATE_ROWS)
     assert "Gaurik Fashions Limited: GMP moved from 20.0% to 14.0%" in body
     assert body.count("Bidding closes today") == 1
+
+
+def test_build_gmp_update_html_shows_movement_and_prediction():
+    html_body = notifier.build_gmp_update_html(GMP_UPDATE_ROWS)
+    assert "Acme Robotics Ltd" in html_body
+    assert "12.0%" in html_body
+    assert "18.5%" in html_body
+    assert "Predicted Listing Gain: +18.9%" in html_body
+
+
+def test_build_gmp_update_html_includes_closing_today_note_only_when_true():
+    html_body = notifier.build_gmp_update_html(GMP_UPDATE_ROWS)
+    assert html_body.count("Bidding closes today") == 1
 
 
 def test_send_gmp_update_alert_returns_true_and_sends_nothing_when_no_rows():

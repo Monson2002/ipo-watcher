@@ -33,11 +33,23 @@ ROW_RE = re.compile(
 )
 
 
+# SEBI titles separate company name from filing type inconsistently: " - "
+# (space-hyphen-space, the common case), ".- " (no space before the dash,
+# e.g. "Jio Platforms Ltd.- Prospectus"), " – " (en dash), or " : "
+# (colon). The rightmost match wins, matching a company name that itself
+# contains a dash (e.g. "ABC - XYZ Limited - Addendum to DRHP").
+_SEPARATOR_RE = re.compile(r"(?<=\s)[-–:]\s+|(?<=\.)-\s+")
+
+
 def _parse_company_and_type(visible_text):
     text = visible_text.strip()
-    if " - " in text:
-        company_name, filing_type = text.rsplit(" - ", 1)
-        return company_name.strip(), filing_type.strip()
+    matches = list(_SEPARATOR_RE.finditer(text))
+    if matches:
+        sep = matches[-1]
+        company_name = text[: sep.start()].strip()
+        filing_type = text[sep.end() :].strip()
+        if company_name and filing_type:
+            return company_name, filing_type
     return text, "Unspecified"
 
 

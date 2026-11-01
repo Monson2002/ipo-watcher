@@ -38,6 +38,43 @@ def test_parse_listing_row_with_no_type_suffix():
     assert rows[1].filing_type == "Unspecified"
 
 
+def test_parse_company_and_type_handles_period_dash_separator_with_no_space():
+    # Real SEBI title: "Jio Platforms Ltd.- Prospectus" — no space before the dash.
+    from ipo_watcher.sebi_source import _parse_company_and_type
+    company_name, filing_type = _parse_company_and_type("Jio Platforms Ltd.- Prospectus")
+    assert company_name == "Jio Platforms Ltd."
+    assert filing_type == "Prospectus"
+
+
+def test_parse_company_and_type_handles_en_dash_separator():
+    # Real SEBI title: "Tonbo Imaging India Limited – Prospectus"
+    from ipo_watcher.sebi_source import _parse_company_and_type
+    company_name, filing_type = _parse_company_and_type(
+        "Tonbo Imaging India Limited – Prospectus"
+    )
+    assert company_name == "Tonbo Imaging India Limited"
+    assert filing_type == "Prospectus"
+
+
+def test_parse_company_and_type_handles_colon_separator():
+    # Real SEBI title: "Zetwerk Manufacturing Businesses Limited : Addendum to RHP"
+    from ipo_watcher.sebi_source import _parse_company_and_type
+    company_name, filing_type = _parse_company_and_type(
+        "Zetwerk Manufacturing Businesses Limited : Addendum to RHP"
+    )
+    assert company_name == "Zetwerk Manufacturing Businesses Limited"
+    assert filing_type == "Addendum to RHP"
+
+
+def test_parse_company_and_type_prefers_rightmost_separator_when_name_contains_one():
+    from ipo_watcher.sebi_source import _parse_company_and_type
+    company_name, filing_type = _parse_company_and_type(
+        "ABC - XYZ Limited - Addendum to DRHP"
+    )
+    assert company_name == "ABC - XYZ Limited"
+    assert filing_type == "Addendum to DRHP"
+
+
 def test_parse_listing_row_with_nested_anchor_only_captures_outer_row():
     rows = parse_listing(LISTING_FIXTURE)
     assert len(rows) == 3
