@@ -122,3 +122,22 @@ def test_poller_workflow_run_step_also_skips_dev_dependencies():
     wf = _load("gmp-poller.yml")
     step = _find_step(wf, lambda s: "ipo_watcher.gmp_source" in s.get("run", ""))
     assert "uv run --no-dev" in step["run"]
+
+
+def test_collector_workflow_commits_database_even_after_a_prior_step_fails():
+    # If "Run the SEBI collector" exits non-zero (e.g. the SEBI 530 BLOCKED
+    # pagination failure), any notified_at/data written to the local
+    # SQLite file by the parts that DID succeed must still be committed
+    # and pushed — otherwise the next run re-discovers the same filings
+    # as unnotified and re-sends the same email every time. Confirmed
+    # live on 2026-11-01: two consecutive runs both logged "Sent alert
+    # email for 10 filing(s)" because this step was skipped on failure.
+    wf = _load("sebi-collector.yml")
+    step = _find_step(wf, lambda s: "Commit and push" in s.get("name", ""))
+    assert step.get("if") == "always()"
+
+
+def test_poller_workflow_commits_database_even_after_a_prior_step_fails():
+    wf = _load("gmp-poller.yml")
+    step = _find_step(wf, lambda s: "Commit and push" in s.get("name", ""))
+    assert step.get("if") == "always()"
