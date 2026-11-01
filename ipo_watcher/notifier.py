@@ -97,12 +97,19 @@ def build_gmp_update_subject(rows):
     return f"IPO Watcher: {count} GMP update{plural}"
 
 
+def _gmp_movement_fragment(r):
+    """No baseline (old_pct is None) means GMP just became available for
+    the first time for a company already notified about via a filing —
+    there's no 'move' to report yet, just the fact that data now exists."""
+    if r["old_pct"] is None:
+        return f"GMP now available at {r['new_pct']:.1f}%"
+    return f"GMP moved from {r['old_pct']:.1f}% to {r['new_pct']:.1f}%"
+
+
 def build_gmp_update_body(rows):
     lines = []
     for r in rows:
-        lines.append(
-            f"{r['company_name']}: GMP moved from {r['old_pct']:.1f}% to {r['new_pct']:.1f}%"
-        )
+        lines.append(f"{r['company_name']}: {_gmp_movement_fragment(r)}")
         lines.append(r["prediction_text"])
         if r["closing_today"]:
             lines.append(
@@ -118,7 +125,7 @@ def build_gmp_update_html(rows):
         cards.append(f"""
       <div style="border-bottom:1px solid #e5e7eb;padding:16px 0;">
         <div style="font-size:16px;font-weight:600;color:#111827;margin:0 0 4px;">{html.escape(r['company_name'])}</div>
-        <div style="font-size:14px;color:#374151;">GMP moved from {r['old_pct']:.1f}% to {r['new_pct']:.1f}%</div>
+        <div style="font-size:14px;color:#374151;">{html.escape(_gmp_movement_fragment(r))}</div>
         <div style="font-size:14px;color:#047857;margin-top:8px;white-space:pre-line;">{html.escape(r['prediction_text'])}</div>
         {'<div style="font-size:13px;color:#b45309;margin-top:8px;font-weight:600;">Bidding closes today - this is the last day to apply or revoke an application.</div>' if r['closing_today'] else ''}
       </div>""")

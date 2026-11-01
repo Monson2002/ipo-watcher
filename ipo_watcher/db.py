@@ -204,3 +204,12 @@ def get_notified_company_ids(conn):
         row["company_id"]
         for row in conn.execute("SELECT DISTINCT company_id FROM gmp_notifications")
     ]
+
+
+def get_filing_notified_company_ids(conn):
+    return [
+        row["company_id"]
+        for row in conn.execute(
+            "SELECT DISTINCT company_id FROM filings WHERE notified_at IS NOT NULL"
+        )
+    ]

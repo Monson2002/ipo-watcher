@@ -35,7 +35,7 @@ jobs:
         uses: astral-sh/setup-uv@v3
 
       - name: Install dependencies
-        run: uv sync
+        run: uv sync --no-dev
 
       - name: Run the GMP poller
         run: uv run python -m ipo_watcher.gmp_source

@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from ipo_watcher import db
+from ipo_watcher import db, gmp_source
 from ipo_watcher.gmp_source import (
     GmpRow,
     fetch_gmp_listing,
@@ -101,6 +101,38 @@ def test_parse_gmp_listing_skips_entry_with_missing_name():
 def test_parse_gmp_listing_handles_data_key_being_none():
     response = {"success": False, "error": "missing_key", "data": None}
     assert parse_gmp_listing(response) == []
+
+
+def test_parse_gmp_listing_handles_non_dict_response():
+    assert parse_gmp_listing(["not", "a", "dict"]) == []
+
+
+def test_parse_gmp_listing_handles_non_list_data_value():
+    assert parse_gmp_listing({"data": "x"}) == []
+
+
+def test_parse_gmp_listing_skips_null_entries():
+    response = _envelope([None, {"name": "Acme Robotics Ltd", "gmp": {"percentage": "5.0"}}])
+    rows = parse_gmp_listing(response)
+    assert len(rows) == 1
+    assert rows[0].company_name == "Acme Robotics Ltd"
+
+
+def test_parse_gmp_listing_skips_non_dict_entries():
+    response = _envelope(["just a string", {"name": "Acme Robotics Ltd", "gmp": {"percentage": "5.0"}}])
+    rows = parse_gmp_listing(response)
+    assert len(rows) == 1
+    assert rows[0].company_name == "Acme Robotics Ltd"
+
+
+def test_parse_gmp_listing_skips_entry_with_non_string_name():
+    response = _envelope([
+        {"name": 12345, "gmp": {"percentage": "5.0"}},
+        {"name": "Acme Robotics Ltd", "gmp": {"percentage": "5.0"}},
+    ])
+    rows = parse_gmp_listing(response)
+    assert len(rows) == 1
+    assert rows[0].company_name == "Acme Robotics Ltd"
 
 
 def test_parse_gmp_listing_reads_close_date_and_is_listed():
@@ -256,7 +288,7 @@ def test_poll_gmp_snapshots_all_matched(conn):
     }
     with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=fake_json):
         result = poll_gmp_snapshots(conn)
-    assert result == {"matched": 1, "unmatched": 0, "skipped_errors": 0}
+    assert result == {"matched": 1, "unmatched": 0, "skipped_errors": 0, "failed": False}
     assert db.get_latest_gmp_pct(conn, company_id) == 5.07
 
 
@@ -271,7 +303,7 @@ def test_poll_gmp_snapshots_partial_match(conn):
     }
     with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=fake_json):
         result = poll_gmp_snapshots(conn)
-    assert result == {"matched": 1, "unmatched": 1, "skipped_errors": 0}
+    assert result == {"matched": 1, "unmatched": 1, "skipped_errors": 0, "failed": False}
     assert conn.execute("SELECT COUNT(*) AS n FROM gmp_snapshots").fetchone()["n"] == 1
 
 
@@ -303,7 +335,7 @@ def test_poll_gmp_snapshots_counts_skipped_errors_for_malformed_rows(conn):
     }
     with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=fake_json):
         result = poll_gmp_snapshots(conn)
-    assert result == {"matched": 1, "unmatched": 0, "skipped_errors": 2}
+    assert result == {"matched": 1, "unmatched": 0, "skipped_errors": 2, "failed": False}
 
 
 def test_poll_gmp_snapshots_passes_close_date_and_is_listed_through(conn):
@@ -329,7 +361,7 @@ def test_poll_gmp_snapshots_skips_cleanly_when_api_key_missing(conn, monkeypatch
     with patch("ipo_watcher.gmp_source.requests.get") as mock_get:
         result = poll_gmp_snapshots(conn)
     mock_get.assert_not_called()
-    assert result == {"matched": 0, "unmatched": 0, "skipped_errors": 0}
+    assert result == {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True}
 
 
 def test_poll_gmp_snapshots_aborts_cleanly_on_http_error(conn):
@@ -339,5 +371,47 @@ def test_poll_gmp_snapshots_aborts_cleanly_on_http_error(conn):
         side_effect=requests.HTTPError("429 Client Error"),
     ):
         result = poll_gmp_snapshots(conn)
-    assert result == {"matched": 0, "unmatched": 0, "skipped_errors": 0}
+    assert result == {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True}
     assert conn.execute("SELECT COUNT(*) AS n FROM gmp_snapshots").fetchone()["n"] == 0
+
+
+def test_poll_gmp_snapshots_does_not_crash_on_non_dict_response(conn):
+    db._get_or_create_company(conn, "Acme Robotics Ltd")
+    with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=["not", "a", "dict"]):
+        result = poll_gmp_snapshots(conn)
+    assert result == {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": False}
+
+
+def test_poll_gmp_snapshots_aborts_cleanly_on_network_error(conn):
+    db._get_or_create_company(conn, "Acme Robotics Ltd")
+    with patch(
+        "ipo_watcher.gmp_source.fetch_gmp_listing",
+        side_effect=requests.ConnectionError("boom"),
+    ):
+        result = poll_gmp_snapshots(conn)
+    assert result == {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True}
+    assert conn.execute("SELECT COUNT(*) AS n FROM gmp_snapshots").fetchone()["n"] == 0
+
+
+def test_main_returns_true_when_poll_and_update_alerts_both_succeed(tmp_path, monkeypatch):
+    monkeypatch.setattr(gmp_source.config, "DB_PATH", str(tmp_path / "main_ok.db"))
+    with patch("ipo_watcher.gmp_source.poll_gmp_snapshots", return_value={"matched": 1, "unmatched": 0, "skipped_errors": 0, "failed": False}), \
+         patch("ipo_watcher.run.send_gmp_update_alerts", return_value=True):
+        ok = gmp_source.main()
+    assert ok is True
+
+
+def test_main_returns_false_when_poll_failed(tmp_path, monkeypatch):
+    monkeypatch.setattr(gmp_source.config, "DB_PATH", str(tmp_path / "main_poll_fail.db"))
+    with patch("ipo_watcher.gmp_source.poll_gmp_snapshots", return_value={"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True}), \
+         patch("ipo_watcher.run.send_gmp_update_alerts", return_value=True):
+        ok = gmp_source.main()
+    assert ok is False
+
+
+def test_main_returns_false_when_update_alert_send_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(gmp_source.config, "DB_PATH", str(tmp_path / "main_alert_fail.db"))
+    with patch("ipo_watcher.gmp_source.poll_gmp_snapshots", return_value={"matched": 1, "unmatched": 0, "skipped_errors": 0, "failed": False}), \
+         patch("ipo_watcher.run.send_gmp_update_alerts", return_value=False):
+        ok = gmp_source.main()
+    assert ok is False

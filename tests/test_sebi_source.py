@@ -17,6 +17,10 @@ LISTING_FIXTURE = """
     <td>Aug 14, 2026</td>
     <td><a href="https://www.sebi.gov.in/filings/public-issues/aug-2026/tablespace-technologies-limited-drhp_103710.html"  target="_blank" title="TABLESPACE TECHNOLOGIES LIMITED - DRHP&lt;br&gt;..." class="points"> TABLESPACE TECHNOLOGIES LIMITED - DRHP<br><a href= 'https://www.sebi.gov.in/sebi_data/commondocs/aug-2026/TABLESPACE%20TECHNOLOGIES%20LIMITED%20-%20DAP_p.pdf' style=color:#000000>TABLESPACE TECHNOLOGIES LIMITED - Draft Abridged Prospectus</a></a>
 </tr>
+<tr role='row' class='even'>
+    <td>Oct 21, 2026</td>
+    <td><a href="https://www.sebi.gov.in/filings/public-issues/oct-2026/gamp-services-limited-drhp_105424.html"  target="_blank" title="GAMP Services Limited- DRHP <br><a href='https://www.sebi.gov.in/sebi_data/commondocs/oct-2026/GAMP%20Services%20Limited%20-%20Draft%20Abridged%20Prospectus_p.pdf' style=color:#000000>GAMP Services Limited - Draft Abridged Prospectus</a>" class="points"> GAMP Services Limited- DRHP <br><a href='https://www.sebi.gov.in/sebi_data/commondocs/oct-2026/GAMP%20Services%20Limited%20-%20Draft%20Abridged%20Prospectus_p.pdf' style=color:#000000>GAMP Services Limited - Draft Abridged Prospectus</a></a>
+</tr>
 </tbody>
 </table>
 """
@@ -66,6 +70,16 @@ def test_parse_company_and_type_handles_colon_separator():
     assert filing_type == "Addendum to RHP"
 
 
+def test_parse_company_and_type_handles_dash_with_no_space_or_period_before_it():
+    # Real SEBI title: "GAMP Services Limited- DRHP" — the dash has neither
+    # a preceding space nor a preceding period, unlike every case already
+    # covered above.
+    from ipo_watcher.sebi_source import _parse_company_and_type
+    company_name, filing_type = _parse_company_and_type("GAMP Services Limited- DRHP")
+    assert company_name == "GAMP Services Limited"
+    assert filing_type == "DRHP"
+
+
 def test_parse_company_and_type_prefers_rightmost_separator_when_name_contains_one():
     from ipo_watcher.sebi_source import _parse_company_and_type
     company_name, filing_type = _parse_company_and_type(
@@ -77,10 +91,40 @@ def test_parse_company_and_type_prefers_rightmost_separator_when_name_contains_o
 
 def test_parse_listing_row_with_nested_anchor_only_captures_outer_row():
     rows = parse_listing(LISTING_FIXTURE)
-    assert len(rows) == 3
+    assert len(rows) == 4
     assert rows[2].company_name == "TABLESPACE TECHNOLOGIES LIMITED"
     assert rows[2].filing_type == "DRHP"
     assert rows[2].source_page_url.endswith("tablespace-technologies-limited-drhp_103710.html")
+
+
+def test_parse_listing_row_with_nested_anchor_inside_title_attribute():
+    # Real SEBI markup: the Abridged Prospectus <a> is nested INSIDE the
+    # outer <a>'s own title="..." attribute value (not after the outer
+    # tag's closing '>' like the row above) — a '>' inside that nested
+    # anchor's attributes previously truncated ROW_RE's match before it
+    # ever reached the real closing '>' of the outer <a> tag, leaving an
+    # empty company_name and silently dropping the row.
+    rows = parse_listing(LISTING_FIXTURE)
+    assert len(rows) == 4
+    assert rows[3].company_name == "GAMP Services Limited"
+    assert rows[3].filing_type == "DRHP"
+    assert rows[3].source_page_url.endswith("gamp-services-limited-drhp_105424.html")
+
+
+ENTITY_FIXTURE = """
+<table id='sample_1'><tbody>
+<tr role='row'>
+    <td>Sep 04, 2026</td>
+    <td><a href="https://www.sebi.gov.in/filings/public-issues/sep-2026/m-and-b-industries-drhp_1.html" target="_blank" title="M&amp;B Industries - DRHP" class="points"> M&amp;B Industries - DRHP</a>
+</tr>
+</tbody></table>
+"""
+
+
+def test_parse_listing_decodes_html_entities_in_company_name():
+    rows = parse_listing(ENTITY_FIXTURE)
+    assert rows[0].company_name == "M&B Industries"
+    assert rows[0].filing_type == "DRHP"
 
 
 AJAX_FRAGMENT = """<input type='hidden' name='totalpage' value=88 /><input type='hidden' name='nextDel' value='25'/><input type='hidden' name='nextValue' value='2'/>

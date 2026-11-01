@@ -1,3 +1,4 @@
+import html as html_lib
 import re
 import time
 import datetime
@@ -25,20 +26,32 @@ class FilingRow:
     source_page_url: str
 
 
+# The outer <a>'s own attributes (e.g. title="...") can contain a nested,
+# unescaped <a ...>...</a> for an Abridged Prospectus link — a '>' inside
+# that nested anchor's attributes must not be mistaken for the outer <a>
+# tag's own closing '>'. The attribute-remainder group below consumes
+# quoted attribute values (which may themselves contain '>') as whole
+# units before allowing a bare '>' to close the tag.
 ROW_RE = re.compile(
     r"<tr[^>]*>\s*<td[^>]*>(?P<date>[^<]+)</td>\s*<td[^>]*>\s*"
-    r"<a\s+href=\"(?P<url>https://www\.sebi\.gov\.in/filings/public-issues/[^\"]+\.html)\"[^>]*>"
+    r"<a\s+href=\"(?P<url>https://www\.sebi\.gov\.in/filings/public-issues/[^\"]+\.html)\""
+    r"(?:\"[^\"]*\"|'[^']*'|[^\"'>])*>"
     r"(?P<text>.*?)</a>",
     re.IGNORECASE | re.DOTALL,
 )
 
 
-# SEBI titles separate company name from filing type inconsistently: " - "
-# (space-hyphen-space, the common case), ".- " (no space before the dash,
-# e.g. "Jio Platforms Ltd.- Prospectus"), " – " (en dash), or " : "
-# (colon). The rightmost match wins, matching a company name that itself
-# contains a dash (e.g. "ABC - XYZ Limited - Addendum to DRHP").
-_SEPARATOR_RE = re.compile(r"(?<=\s)[-–:]\s+|(?<=\.)-\s+")
+# SEBI titles separate company name from filing type inconsistently: a
+# dash, en dash, or colon immediately followed by whitespace — with or
+# without a space or period before it (e.g. "Gaurik Fashions Limited -
+# Addendum to DRHP", "Jio Platforms Ltd.- Prospectus", "GAMP Services
+# Limited- DRHP", "Tonbo Imaging India Limited – Prospectus"). What
+# precedes the separator doesn't need checking: a hyphen inside a word
+# (e.g. "UDRHP-1", "Hi-Tech") is never followed by whitespace, so it's
+# never mistaken for this separator. The rightmost match wins, matching a
+# company name that itself contains a dash (e.g. "ABC - XYZ Limited -
+# Addendum to DRHP").
+_SEPARATOR_RE = re.compile(r"[-–:]\s+")
 
 
 def _parse_company_and_type(visible_text):
@@ -66,7 +79,12 @@ def parse_listing(html):
             filing_date = datetime.datetime.strptime(date_text, "%b %d, %Y").date().isoformat()
         except ValueError:
             continue
+        # Truncate on the raw '<' first (handles nested, invalid tags in
+        # the visible text) before decoding entities — decoding first
+        # could turn an escaped "&lt;" into a literal '<' and confuse the
+        # truncation step.
         visible_text = re.split(r"<", m.group("text"), maxsplit=1)[0]
+        visible_text = html_lib.unescape(visible_text)
         company_name, filing_type = _parse_company_and_type(visible_text)
         if not company_name:
             continue

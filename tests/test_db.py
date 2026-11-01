@@ -218,3 +218,22 @@ def test_get_filings_needing_download_and_set_pdf_info(conn):
 
     db.set_pdf_info(conn, result["filing_id"], "data/pdfs/new_co/1.pdf", "deadbeef")
     assert db.get_filings_needing_download(conn) == []
+
+
+def test_get_filing_notified_company_ids_includes_companies_notified_with_no_gmp_baseline(conn):
+    company_id, _ = db._get_or_create_company(conn, "New Co")
+    result = db.upsert_filing(
+        conn, company_name="New Co", filing_type="DRHP", filing_date="2026-09-01",
+        document_url="https://x/1.pdf", source_page_url="https://x/1.html",
+    )
+    assert db.get_filing_notified_company_ids(conn) == []
+    db.mark_notified(conn, [result["filing_id"]])
+    assert db.get_filing_notified_company_ids(conn) == [company_id]
+
+
+def test_get_filing_notified_company_ids_excludes_unnotified_filings(conn):
+    db.upsert_filing(
+        conn, company_name="New Co", filing_type="DRHP", filing_date="2026-09-01",
+        document_url="https://x/1.pdf", source_page_url="https://x/1.html",
+    )
+    assert db.get_filing_notified_company_ids(conn) == []

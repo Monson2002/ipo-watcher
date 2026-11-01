@@ -48,11 +48,28 @@ class GmpRow:
     is_listed: bool | None = None
 
 
+def _extract_entries(response_json):
+    """Defensively pulls the entry list out of a GMP API response. Each
+    bail-out here matches a real malformed-payload shape seen possible from
+    a third-party API: a non-dict top-level response, a "data" value that
+    isn't a list, or an individual entry that isn't a dict — any of which
+    would otherwise raise AttributeError deep in the per-entry loop below
+    and abort the whole poll over one bad row."""
+    if not isinstance(response_json, dict):
+        return []
+    data = response_json.get("data")
+    if not isinstance(data, list):
+        return []
+    return data
+
+
 def parse_gmp_listing(response_json):
     rows = []
-    for entry in response_json.get("data") or []:
+    for entry in _extract_entries(response_json):
+        if not isinstance(entry, dict):
+            continue
         company_name = entry.get("name")
-        if not company_name:
+        if not isinstance(company_name, str) or not company_name:
             continue
         gmp = entry.get("gmp")
         if not gmp:
@@ -123,18 +140,18 @@ def fetch_gmp_listing():
 def poll_gmp_snapshots(conn):
     if not config.IPO_GURU_API_KEY:
         log.error("GMP poll skipped: IPO_GURU_API_KEY is not configured")
-        return {"matched": 0, "unmatched": 0, "skipped_errors": 0}
+        return {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True}
     try:
         response_json = fetch_gmp_listing()
     except requests.HTTPError as exc:
         log.error("GMP poll aborted: HTTP error %s", exc)
-        return {"matched": 0, "unmatched": 0, "skipped_errors": 0}
+        return {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True}
     except requests.RequestException as exc:
         log.error("GMP poll aborted: network error %s", exc)
-        return {"matched": 0, "unmatched": 0, "skipped_errors": 0}
+        return {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True}
 
     rows = parse_gmp_listing(response_json)
-    total_entries = len(response_json.get("data") or [])
+    total_entries = len(_extract_entries(response_json))
     skipped_errors = total_entries - len(rows)
     matched = unmatched = 0
     for row in rows:
@@ -148,7 +165,7 @@ def poll_gmp_snapshots(conn):
             close_date=row.close_date, is_listed=row.is_listed,
         )
         matched += 1
-    result = {"matched": matched, "unmatched": unmatched, "skipped_errors": skipped_errors}
+    result = {"matched": matched, "unmatched": unmatched, "skipped_errors": skipped_errors, "failed": False}
     log.info(
         "GMP poll: %d matched, %d unmatched, %d skipped (malformed)",
         matched, unmatched, skipped_errors,
@@ -163,15 +180,20 @@ def main():
     os.makedirs(os.path.dirname(config.DB_PATH) or ".", exist_ok=True)
     conn = db.connect(config.DB_PATH)
     db.init_db(conn)
+    ok = True
     try:
-        poll_gmp_snapshots(conn)
-        _run.send_gmp_update_alerts(conn)
+        if poll_gmp_snapshots(conn).get("failed"):
+            ok = False
+        if not _run.send_gmp_update_alerts(conn):
+            ok = False
     except Exception:
         log.exception("Unhandled error in gmp_source poll or update-alert cycle")
         raise
     finally:
         conn.close()
+    return ok
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    sys.exit(0 if main() else 1)

@@ -62,6 +62,26 @@ def test_send_pending_alert_includes_predicted_gain_when_gmp_available(tmp_path)
     conn.close()
 
 
+def test_send_pending_alert_shows_no_longer_applicable_for_already_listed_company(tmp_path):
+    conn = db.connect(str(tmp_path / "test_already_listed.db"))
+    db.init_db(conn)
+    db.upsert_filing(
+        conn, company_name="HD Fire Protect Limited", filing_type="Addendum to RHP", filing_date="2026-10-20",
+        document_url="https://x/1.pdf", source_page_url="https://x/1.html",
+    )
+    company_id, _ = db._get_or_create_company(conn, "HD Fire Protect Limited")
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=26.2, is_listed=True)
+
+    with patch("ipo_watcher.run.notifier.send_alert", return_value=True) as mock_send:
+        run.send_pending_alert(conn)
+    sent_rows = mock_send.call_args[0][0]
+    assert sent_rows[0]["gmp_prediction"] == "Already listed - GMP prediction no longer applicable."
+    assert "Predicted Listing Gain" not in sent_rows[0]["gmp_prediction"]
+    assert db.get_last_notified_gmp_pct(conn, company_id) is None
+
+    conn.close()
+
+
 def test_send_pending_alert_records_gmp_notification_baseline(tmp_path):
     conn = db.connect(str(tmp_path / "test5.db"))
     db.init_db(conn)
@@ -90,9 +110,31 @@ def test_send_pending_alert_does_not_record_baseline_when_send_fails(tmp_path):
     db.record_gmp_snapshot(conn, company_id, gmp_pct=18.0)
 
     with patch("ipo_watcher.run.notifier.send_alert", return_value=False):
-        run.send_pending_alert(conn)
+        ok = run.send_pending_alert(conn)
 
+    assert ok is False
     assert db.get_last_notified_gmp_pct(conn, company_id) is None
+    conn.close()
+
+
+def test_send_pending_alert_returns_true_on_success(tmp_path):
+    conn = db.connect(str(tmp_path / "test_alert_ok.db"))
+    db.init_db(conn)
+    db.upsert_filing(
+        conn, company_name="Fine Co", filing_type="DRHP", filing_date="2026-09-05",
+        document_url="https://x/1.pdf", source_page_url="https://x/1.html",
+    )
+    with patch("ipo_watcher.run.notifier.send_alert", return_value=True):
+        ok = run.send_pending_alert(conn)
+    assert ok is True
+    conn.close()
+
+
+def test_send_pending_alert_returns_true_when_nothing_to_send(tmp_path):
+    conn = db.connect(str(tmp_path / "test_alert_nothing.db"))
+    db.init_db(conn)
+    ok = run.send_pending_alert(conn)
+    assert ok is True
     conn.close()
 
 
@@ -134,6 +176,61 @@ def test_main_downloads_pdfs_by_default(tmp_path, monkeypatch):
     mock_alert.assert_called_once()
 
 
+def test_main_returns_true_when_discover_and_alert_both_succeed(tmp_path, monkeypatch):
+    monkeypatch.setattr(run.config, "DB_PATH", str(tmp_path / "main_ok.db"))
+    with patch("ipo_watcher.run.discover_new_filings", return_value=True), \
+         patch("ipo_watcher.run.download_pending_pdfs"), \
+         patch("ipo_watcher.run.send_pending_alert", return_value=True):
+        ok = run.main()
+    assert ok is True
+
+
+def test_main_returns_false_when_discover_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(run.config, "DB_PATH", str(tmp_path / "main_discover_fail.db"))
+    with patch("ipo_watcher.run.discover_new_filings", return_value=False), \
+         patch("ipo_watcher.run.download_pending_pdfs"), \
+         patch("ipo_watcher.run.send_pending_alert", return_value=True):
+        ok = run.main()
+    assert ok is False
+
+
+def test_main_returns_false_when_alert_send_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(run.config, "DB_PATH", str(tmp_path / "main_alert_fail.db"))
+    with patch("ipo_watcher.run.discover_new_filings", return_value=True), \
+         patch("ipo_watcher.run.download_pending_pdfs"), \
+         patch("ipo_watcher.run.send_pending_alert", return_value=False):
+        ok = run.main()
+    assert ok is False
+
+
+def test_discover_new_filings_returns_true_on_normal_completion(tmp_path):
+    conn = db.connect(str(tmp_path / "discover_ok.db"))
+    db.init_db(conn)
+    with patch("ipo_watcher.run.sebi_source.fetch_listing_page", side_effect=[ONE_ROW_LISTING, EMPTY_LISTING]), \
+         patch("ipo_watcher.run.sebi_source.fetch_detail_page", return_value=DETAIL_HTML):
+        ok = run.discover_new_filings(conn)
+    assert ok is True
+    conn.close()
+
+
+def test_discover_new_filings_returns_false_when_page_fetch_raises(tmp_path):
+    conn = db.connect(str(tmp_path / "discover_fetch_fail.db"))
+    db.init_db(conn)
+    with patch("ipo_watcher.run.sebi_source.fetch_listing_page", side_effect=Exception("530 BLOCKED")):
+        ok = run.discover_new_filings(conn)
+    assert ok is False
+    conn.close()
+
+
+def test_discover_new_filings_returns_false_when_page_one_parses_to_zero_rows(tmp_path):
+    conn = db.connect(str(tmp_path / "discover_zero_rows.db"))
+    db.init_db(conn)
+    with patch("ipo_watcher.run.sebi_source.fetch_listing_page", return_value=EMPTY_LISTING):
+        ok = run.discover_new_filings(conn)
+    assert ok is False
+    conn.close()
+
+
 def test_discover_new_filings_skips_detail_fetch_for_known_rows(tmp_path):
     conn = db.connect(str(tmp_path / "test3.db"))
     db.init_db(conn)
@@ -154,7 +251,16 @@ def test_discover_new_filings_skips_detail_fetch_for_known_rows(tmp_path):
     conn.close()
 
 
+def _seed_notified_filing(conn, company_name):
+    result = db.upsert_filing(
+        conn, company_name=company_name, filing_type="DRHP", filing_date="2026-09-01",
+        document_url="https://x/1.pdf", source_page_url=f"https://x/{company_name}.html",
+    )
+    db.mark_notified(conn, [result["filing_id"]])
+
+
 def _seed_company_with_history(conn, name, last_notified_pct, latest_gmp_pct, close_date=None, is_listed=None):
+    _seed_notified_filing(conn, name)
     company_id, _ = db._get_or_create_company(conn, name)
     db.record_gmp_notification(conn, company_id, last_notified_pct)
     db.record_gmp_snapshot(conn, company_id, latest_gmp_pct, close_date=close_date, is_listed=is_listed)
@@ -232,6 +338,45 @@ def test_send_gmp_update_alerts_batches_multiple_companies_into_one_email(tmp_pa
     conn.close()
 
 
+def test_send_gmp_update_alerts_sends_first_update_when_no_baseline_exists(tmp_path):
+    # A company notified via a filing alert before GMP was available never
+    # gets a gmp_notifications baseline row (see send_pending_alert) — this
+    # pins that such a company isn't invisible to the update-alert pass
+    # once GMP data does appear for the first time.
+    conn = db.connect(str(tmp_path / "gmp_update_no_baseline.db"))
+    db.init_db(conn)
+    _seed_notified_filing(conn, "Oravel Stays Limited")
+    company_id, _ = db._get_or_create_company(conn, "Oravel Stays Limited")
+    db.record_gmp_snapshot(conn, company_id, 9.5)
+    assert db.get_last_notified_gmp_pct(conn, company_id) is None
+
+    with patch("ipo_watcher.run.notifier.send_gmp_update_alert", return_value=True) as mock_send:
+        run.send_gmp_update_alerts(conn)
+
+    mock_send.assert_called_once()
+    rows = mock_send.call_args[0][0]
+    assert rows[0]["company_name"] == "Oravel Stays Limited"
+    assert rows[0]["old_pct"] is None
+    assert rows[0]["new_pct"] == 9.5
+    assert db.get_last_notified_gmp_pct(conn, company_id) == 9.5
+    conn.close()
+
+
+def test_send_gmp_update_alerts_does_not_notify_company_with_no_filing_and_no_baseline(tmp_path):
+    # A company that only exists via a GMP snapshot (never actually
+    # notified about any filing) must not be alerted on at all.
+    conn = db.connect(str(tmp_path / "gmp_update_no_filing.db"))
+    db.init_db(conn)
+    company_id, _ = db._get_or_create_company(conn, "Untracked Co")
+    db.record_gmp_snapshot(conn, company_id, 9.5)
+
+    with patch("ipo_watcher.run.notifier.send_gmp_update_alert", return_value=True) as mock_send:
+        run.send_gmp_update_alerts(conn)
+
+    mock_send.assert_not_called()
+    conn.close()
+
+
 def test_send_gmp_update_alerts_stops_once_listed(tmp_path):
     conn = db.connect(str(tmp_path / "gmp_update5.db"))
     db.init_db(conn)
@@ -251,9 +396,30 @@ def test_send_gmp_update_alerts_resets_baseline_even_when_send_fails(tmp_path):
     company_id = _seed_company_with_history(conn, "Acme Robotics Ltd", last_notified_pct=10.0, latest_gmp_pct=16.0)
 
     with patch("ipo_watcher.run.notifier.send_gmp_update_alert", return_value=False):
-        run.send_gmp_update_alerts(conn)
+        ok = run.send_gmp_update_alerts(conn)
 
+    assert ok is False
     assert db.get_last_notified_gmp_pct(conn, company_id) == 16.0
+    conn.close()
+
+
+def test_send_gmp_update_alerts_returns_true_on_success(tmp_path):
+    conn = db.connect(str(tmp_path / "gmp_update_ok.db"))
+    db.init_db(conn)
+    _seed_company_with_history(conn, "Acme Robotics Ltd", last_notified_pct=10.0, latest_gmp_pct=16.0)
+
+    with patch("ipo_watcher.run.notifier.send_gmp_update_alert", return_value=True):
+        ok = run.send_gmp_update_alerts(conn)
+
+    assert ok is True
+    conn.close()
+
+
+def test_send_gmp_update_alerts_returns_true_when_nothing_to_send(tmp_path):
+    conn = db.connect(str(tmp_path / "gmp_update_nothing.db"))
+    db.init_db(conn)
+    ok = run.send_gmp_update_alerts(conn)
+    assert ok is True
     conn.close()
 
 

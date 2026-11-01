@@ -94,3 +94,15 @@ def test_both_workflows_share_the_same_concurrency_group():
     collector = _load("sebi-collector.yml")
     poller = _load("gmp-poller.yml")
     assert collector["concurrency"]["group"] == poller["concurrency"]["group"]
+
+
+def test_collector_workflow_installs_without_dev_dependencies():
+    wf = _load("sebi-collector.yml")
+    step = _find_step(wf, lambda s: "uv sync" in s.get("run", ""))
+    assert step["run"] == "uv sync --no-dev"
+
+
+def test_poller_workflow_installs_without_dev_dependencies():
+    wf = _load("gmp-poller.yml")
+    step = _find_step(wf, lambda s: "uv sync" in s.get("run", ""))
+    assert step["run"] == "uv sync --no-dev"

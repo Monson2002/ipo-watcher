@@ -43,11 +43,12 @@ def discover_new_filings(conn):
             html = sebi_source.fetch_listing_page(page_no)
         except Exception:
             log.exception("Failed to fetch listing page %s", page_no)
-            break
+            return False
         rows = sebi_source.parse_listing(html)
         if not rows:
             if page_no == 1:
                 log.warning("Listing page 1 parsed to zero rows; parser or site may be broken")
+                return False
             break
         any_new = False
         newly_inserted = 0
@@ -85,6 +86,7 @@ def discover_new_filings(conn):
         if not any_new:
             break
         page_no += 1
+    return True
 
 
 def download_pending_pdfs(conn):
@@ -110,6 +112,8 @@ def download_pending_pdfs(conn):
 
 
 def _gmp_prediction_text(conn, company_id):
+    if db.get_latest_is_listed(conn, company_id):
+        return None, "Already listed - GMP prediction no longer applicable."
     gmp_pct = db.get_latest_gmp_pct(conn, company_id)
     if gmp_pct is None:
         return None, "GMP not yet available."
@@ -120,7 +124,7 @@ def send_pending_alert(conn):
     rows = db.get_unnotified_filings(conn)
     if not rows:
         log.info("No new filings to alert on")
-        return
+        return True
     enriched_rows = []
     pending_notifications = []
     for r in rows:
@@ -136,14 +140,16 @@ def send_pending_alert(conn):
         for company_id, gmp_pct in pending_notifications:
             db.record_gmp_notification(conn, company_id, gmp_pct)
         log.info("Sent alert email for %d filing(s)", len(rows))
+        return True
     else:
         log.error("Failed to send alert email for %d filing(s); will retry next run", len(rows))
+        return False
 
 
 def send_gmp_update_alerts(conn):
     today = datetime.datetime.now(config.IST).date().isoformat()
     rows = []
-    for company_id in db.get_notified_company_ids(conn):
+    for company_id in db.get_filing_notified_company_ids(conn):
         is_listed = db.get_latest_is_listed(conn, company_id)
         close_date = db.get_latest_close_date(conn, company_id)
         if is_listed or (close_date is not None and close_date < today):
@@ -152,7 +158,11 @@ def send_gmp_update_alerts(conn):
         latest_pct = db.get_latest_gmp_pct(conn, company_id)
         if latest_pct is None:
             continue
-        if round(abs(latest_pct - last_notified), 6) < GMP_MOVEMENT_THRESHOLD:
+        # No baseline yet means GMP just became available for the first
+        # time for a company we've already told the user about — that's
+        # inherently notify-worthy, not a "move" to measure against the
+        # threshold.
+        if last_notified is not None and round(abs(latest_pct - last_notified), 6) < GMP_MOVEMENT_THRESHOLD:
             continue
         company_row = conn.execute(
             "SELECT name FROM companies WHERE id = ?", (company_id,)
@@ -170,8 +180,11 @@ def send_gmp_update_alerts(conn):
         ok = notifier.send_gmp_update_alert(rows)
         if ok:
             log.info("Sent GMP update alert for %d compan%s", len(rows), plural)
+            return True
         else:
             log.error("Failed to send GMP update alert for %d compan%s", len(rows), plural)
+            return False
+    return True
 
 
 def main(skip_pdf_download=False):
@@ -179,21 +192,26 @@ def main(skip_pdf_download=False):
     os.makedirs(os.path.dirname(config.DB_PATH) or ".", exist_ok=True)
     conn = db.connect(config.DB_PATH)
     db.init_db(conn)
+    ok = True
     try:
-        discover_new_filings(conn)
+        if not discover_new_filings(conn):
+            ok = False
         if not skip_pdf_download:
             download_pending_pdfs(conn)
-        send_pending_alert(conn)
+        if not send_pending_alert(conn):
+            ok = False
     except Exception:
         log.exception("Unhandled error in ipo_watcher run")
         raise
     finally:
         conn.close()
+    return ok
 
 
 if __name__ == "__main__":
     import argparse
+    import sys
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip-pdf-download", action="store_true")
     args = parser.parse_args()
-    main(skip_pdf_download=args.skip_pdf_download)
+    sys.exit(0 if main(skip_pdf_download=args.skip_pdf_download) else 1)

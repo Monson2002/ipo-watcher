@@ -197,6 +197,19 @@ def test_build_gmp_update_body_shows_movement_and_prediction():
     assert "Predicted Listing Gain: +18.9%" in body
 
 
+def test_build_gmp_update_body_shows_first_available_when_no_baseline():
+    rows = [{
+        "company_name": "Oravel Stays Limited",
+        "old_pct": None,
+        "new_pct": 9.5,
+        "prediction_text": "Predicted Listing Gain: +9.8%\n...",
+        "closing_today": False,
+    }]
+    body = notifier.build_gmp_update_body(rows)
+    assert "Oravel Stays Limited: GMP now available at 9.5%" in body
+    assert "Predicted Listing Gain: +9.8%" in body
+
+
 def test_build_gmp_update_body_includes_closing_today_note_only_when_true():
     body = notifier.build_gmp_update_body(GMP_UPDATE_ROWS)
     assert "Gaurik Fashions Limited: GMP moved from 20.0% to 14.0%" in body
@@ -209,6 +222,19 @@ def test_build_gmp_update_html_shows_movement_and_prediction():
     assert "12.0%" in html_body
     assert "18.5%" in html_body
     assert "Predicted Listing Gain: +18.9%" in html_body
+
+
+def test_build_gmp_update_html_shows_first_available_when_no_baseline():
+    rows = [{
+        "company_name": "Oravel Stays Limited",
+        "old_pct": None,
+        "new_pct": 9.5,
+        "prediction_text": "Predicted Listing Gain: +9.8%\n...",
+        "closing_today": False,
+    }]
+    html_body = notifier.build_gmp_update_html(rows)
+    assert "Oravel Stays Limited" in html_body
+    assert "GMP now available at 9.5%" in html_body
 
 
 def test_build_gmp_update_html_includes_closing_today_note_only_when_true():
