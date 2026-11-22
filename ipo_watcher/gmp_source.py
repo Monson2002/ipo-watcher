@@ -1,3 +1,4 @@
+import datetime
 import logging
 import math
 import os
@@ -19,6 +20,10 @@ IPOS_URL = "https://www.ipoguru.in/api/v2/ipos?months=0"
 
 _SUFFIX_RE = re.compile(r"\b(ltd|limited|pvt|private|ipo)\b\.?", re.IGNORECASE)
 _CLOSE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _today():
+    return datetime.datetime.now(config.IST).date().isoformat()
 
 
 def _parse_is_listed(value):
@@ -46,6 +51,7 @@ class GmpRow:
     gmp_rupees: float | None = None
     close_date: str | None = None
     is_listed: bool | None = None
+    open_date: str | None = None
 
 
 def _extract_entries(response_json):
@@ -92,6 +98,7 @@ def parse_gmp_listing(response_json):
             gmp_rupees=gmp_rupees,
             close_date=_parse_close_date(entry.get("close_date")),
             is_listed=_parse_is_listed(entry.get("is_listed")),
+            open_date=_parse_close_date(entry.get("open_date")),
         ))
     return rows
 
@@ -140,32 +147,61 @@ def fetch_gmp_listing():
 def poll_gmp_snapshots(conn):
     if not config.IPO_GURU_API_KEY:
         log.error("GMP poll skipped: IPO_GURU_API_KEY is not configured")
-        return {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True}
+        return {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True, "opens_today": []}
     try:
         response_json = fetch_gmp_listing()
     except requests.HTTPError as exc:
         log.error("GMP poll aborted: HTTP error %s", exc)
-        return {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True}
+        return {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True, "opens_today": []}
     except requests.RequestException as exc:
         log.error("GMP poll aborted: network error %s", exc)
-        return {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True}
+        return {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True, "opens_today": []}
 
+    today = _today()
     rows = parse_gmp_listing(response_json)
     total_entries = len(_extract_entries(response_json))
     skipped_errors = total_entries - len(rows)
     matched = unmatched = 0
+    opens_today = []
+    opens_today_company_ids = set()
     for row in rows:
         company_id = match_company(conn, row.company_name)
         if company_id is None:
             unmatched += 1
             log.warning("No company match for GMP entry %r", row.company_name)
             continue
+        # Dedup across polls is tracked by a dedicated notifications table,
+        # not by whether a gmp_snapshots row already has this open_date —
+        # IPO Guru typically reports open_date days before the window
+        # opens, so a snapshot carrying it already exists long before
+        # "today" ever matches; checking gmp_snapshots itself would
+        # permanently block the real trigger day (caught live by review,
+        # 2026-11-22). Recording as sent happens only after a successful
+        # send (in main()), matching this pipeline's existing retry
+        # contract — which means that table alone can't catch two rows for
+        # the same company within a single poll response, so a per-poll
+        # `opens_today_company_ids` guard covers that case too.
+        if (
+            row.open_date == today
+            and company_id not in opens_today_company_ids
+            and not db.has_notified_application_open(conn, company_id, row.open_date)
+        ):
+            opens_today.append({
+                "company_id": company_id,
+                "company_name": row.company_name,
+                "gmp_pct": row.gmp_pct,
+                "open_date": row.open_date,
+            })
+            opens_today_company_ids.add(company_id)
         db.record_gmp_snapshot(
             conn, company_id, row.gmp_pct, row.gmp_rupees,
-            close_date=row.close_date, is_listed=row.is_listed,
+            close_date=row.close_date, is_listed=row.is_listed, open_date=row.open_date,
         )
         matched += 1
-    result = {"matched": matched, "unmatched": unmatched, "skipped_errors": skipped_errors, "failed": False}
+    result = {
+        "matched": matched, "unmatched": unmatched, "skipped_errors": skipped_errors,
+        "failed": False, "opens_today": opens_today,
+    }
     log.info(
         "GMP poll: %d matched, %d unmatched, %d skipped (malformed)",
         matched, unmatched, skipped_errors,
@@ -182,8 +218,16 @@ def main():
     db.init_db(conn)
     ok = True
     try:
-        if poll_gmp_snapshots(conn).get("failed"):
+        poll_result = poll_gmp_snapshots(conn)
+        if poll_result.get("failed"):
             ok = False
+        opens_today = poll_result.get("opens_today") or []
+        if opens_today:
+            if _run.send_application_open_alerts(opens_today):
+                for row in opens_today:
+                    db.record_application_open_notification(conn, row["company_id"], row["open_date"])
+            else:
+                ok = False
         if not _run.send_gmp_update_alerts(conn):
             ok = False
     except Exception:

@@ -191,6 +191,34 @@ def test_parse_gmp_listing_defaults_close_date_and_is_listed_to_none_when_absent
     assert rows[0].is_listed is None
 
 
+def test_parse_gmp_listing_reads_open_date():
+    response = _envelope([
+        {
+            "name": "Acme Robotics Ltd",
+            "gmp": {"percentage": "5.07", "price": "7.5"},
+            "open_date": "2026-11-18",
+        }
+    ])
+    rows = parse_gmp_listing(response)
+    assert rows[0].open_date == "2026-11-18"
+
+
+def test_parse_gmp_listing_treats_malformed_open_date_as_none():
+    response = _envelope([
+        {"name": "Bad Date Ltd", "gmp": {"percentage": "5.0"}, "open_date": "18-Nov-2026"},
+    ])
+    rows = parse_gmp_listing(response)
+    assert rows[0].open_date is None
+
+
+def test_parse_gmp_listing_defaults_open_date_to_none_when_absent():
+    response = _envelope([
+        {"name": "Upcoming Co Ltd", "gmp": {"percentage": "5.0"}},
+    ])
+    rows = parse_gmp_listing(response)
+    assert rows[0].open_date is None
+
+
 def test_match_company_exact_match(conn):
     company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
     assert match_company(conn, "Acme Robotics Ltd") == company_id
@@ -288,7 +316,9 @@ def test_poll_gmp_snapshots_all_matched(conn):
     }
     with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=fake_json):
         result = poll_gmp_snapshots(conn)
-    assert result == {"matched": 1, "unmatched": 0, "skipped_errors": 0, "failed": False}
+    assert result == {
+        "matched": 1, "unmatched": 0, "skipped_errors": 0, "failed": False, "opens_today": [],
+    }
     assert db.get_latest_gmp_pct(conn, company_id) == 5.07
 
 
@@ -303,7 +333,9 @@ def test_poll_gmp_snapshots_partial_match(conn):
     }
     with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=fake_json):
         result = poll_gmp_snapshots(conn)
-    assert result == {"matched": 1, "unmatched": 1, "skipped_errors": 0, "failed": False}
+    assert result == {
+        "matched": 1, "unmatched": 1, "skipped_errors": 0, "failed": False, "opens_today": [],
+    }
     assert conn.execute("SELECT COUNT(*) AS n FROM gmp_snapshots").fetchone()["n"] == 1
 
 
@@ -335,7 +367,9 @@ def test_poll_gmp_snapshots_counts_skipped_errors_for_malformed_rows(conn):
     }
     with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=fake_json):
         result = poll_gmp_snapshots(conn)
-    assert result == {"matched": 1, "unmatched": 0, "skipped_errors": 2, "failed": False}
+    assert result == {
+        "matched": 1, "unmatched": 0, "skipped_errors": 2, "failed": False, "opens_today": [],
+    }
 
 
 def test_poll_gmp_snapshots_passes_close_date_and_is_listed_through(conn):
@@ -355,13 +389,123 @@ def test_poll_gmp_snapshots_passes_close_date_and_is_listed_through(conn):
     assert db.get_latest_is_listed(conn, company_id) is False
 
 
+def test_poll_gmp_snapshots_flags_company_whose_window_opens_today(conn, monkeypatch):
+    monkeypatch.setattr(gmp_source, "_today", lambda: "2026-11-18")
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    fake_json = {
+        "success": True,
+        "data": [{
+            "name": "Acme Robotics Ltd",
+            "gmp": {"percentage": "18.4"},
+            "open_date": "2026-11-18",
+        }],
+    }
+    with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=fake_json):
+        result = poll_gmp_snapshots(conn)
+    assert result["opens_today"] == [{
+        "company_id": company_id, "company_name": "Acme Robotics Ltd",
+        "gmp_pct": 18.4, "open_date": "2026-11-18",
+    }]
+
+
+def test_poll_gmp_snapshots_does_not_reflag_once_already_notified(conn, monkeypatch):
+    monkeypatch.setattr(gmp_source, "_today", lambda: "2026-11-18")
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    db.record_application_open_notification(conn, company_id, "2026-11-18")
+    fake_json = {
+        "success": True,
+        "data": [{
+            "name": "Acme Robotics Ltd",
+            "gmp": {"percentage": "18.4"},
+            "open_date": "2026-11-18",
+        }],
+    }
+    with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=fake_json):
+        result = poll_gmp_snapshots(conn)
+    assert result["opens_today"] == []
+
+
+def test_poll_gmp_snapshots_flags_open_day_even_when_an_earlier_poll_already_stored_the_same_open_date(conn, monkeypatch):
+    # Regression: IPO Guru reports open_date days before the window opens,
+    # so a gmp_snapshots row carrying it already exists long before "today"
+    # matches. The real trigger day must still fire — dedup must be based
+    # on whether the alert was actually SENT (application_open_notifications),
+    # never on gmp_snapshots already containing this open_date value.
+    monkeypatch.setattr(gmp_source, "_today", lambda: "2026-11-13")
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    earlier_poll_json = {
+        "success": True,
+        "data": [{
+            "name": "Acme Robotics Ltd",
+            "gmp": {"percentage": "4.0"},
+            "open_date": "2026-11-18",
+        }],
+    }
+    with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=earlier_poll_json):
+        earlier_result = poll_gmp_snapshots(conn)
+    assert earlier_result["opens_today"] == []
+
+    monkeypatch.setattr(gmp_source, "_today", lambda: "2026-11-18")
+    open_day_json = {
+        "success": True,
+        "data": [{
+            "name": "Acme Robotics Ltd",
+            "gmp": {"percentage": "18.4"},
+            "open_date": "2026-11-18",
+        }],
+    }
+    with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=open_day_json):
+        open_day_result = poll_gmp_snapshots(conn)
+    assert open_day_result["opens_today"] == [{
+        "company_id": company_id, "company_name": "Acme Robotics Ltd",
+        "gmp_pct": 18.4, "open_date": "2026-11-18",
+    }]
+
+
+def test_poll_gmp_snapshots_does_not_duplicate_a_company_appearing_twice_in_one_response(conn, monkeypatch):
+    # The dedup table is only updated after the whole poll completes and
+    # the send succeeds (so a failed send can retry) — which means it
+    # can't catch two rows for the same company within a single poll on
+    # its own. A per-poll "already queued" guard is needed too.
+    monkeypatch.setattr(gmp_source, "_today", lambda: "2026-11-18")
+    db._get_or_create_company(conn, "Acme Robotics Ltd")
+    fake_json = {
+        "success": True,
+        "data": [
+            {"name": "Acme Robotics Ltd", "gmp": {"percentage": "18.0"}, "open_date": "2026-11-18"},
+            {"name": "Acme Robotics Ltd", "gmp": {"percentage": "18.4"}, "open_date": "2026-11-18"},
+        ],
+    }
+    with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=fake_json):
+        result = poll_gmp_snapshots(conn)
+    assert len(result["opens_today"]) == 1
+
+
+def test_poll_gmp_snapshots_does_not_flag_company_opening_a_different_day(conn, monkeypatch):
+    monkeypatch.setattr(gmp_source, "_today", lambda: "2026-11-18")
+    db._get_or_create_company(conn, "Acme Robotics Ltd")
+    fake_json = {
+        "success": True,
+        "data": [{
+            "name": "Acme Robotics Ltd",
+            "gmp": {"percentage": "18.4"},
+            "open_date": "2026-11-20",
+        }],
+    }
+    with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=fake_json):
+        result = poll_gmp_snapshots(conn)
+    assert result["opens_today"] == []
+
+
 def test_poll_gmp_snapshots_skips_cleanly_when_api_key_missing(conn, monkeypatch):
     monkeypatch.setattr("ipo_watcher.gmp_source.config.IPO_GURU_API_KEY", "")
     db._get_or_create_company(conn, "Acme Robotics Ltd")
     with patch("ipo_watcher.gmp_source.requests.get") as mock_get:
         result = poll_gmp_snapshots(conn)
     mock_get.assert_not_called()
-    assert result == {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True}
+    assert result == {
+        "matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True, "opens_today": [],
+    }
 
 
 def test_poll_gmp_snapshots_aborts_cleanly_on_http_error(conn):
@@ -371,7 +515,9 @@ def test_poll_gmp_snapshots_aborts_cleanly_on_http_error(conn):
         side_effect=requests.HTTPError("429 Client Error"),
     ):
         result = poll_gmp_snapshots(conn)
-    assert result == {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True}
+    assert result == {
+        "matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True, "opens_today": [],
+    }
     assert conn.execute("SELECT COUNT(*) AS n FROM gmp_snapshots").fetchone()["n"] == 0
 
 
@@ -379,7 +525,9 @@ def test_poll_gmp_snapshots_does_not_crash_on_non_dict_response(conn):
     db._get_or_create_company(conn, "Acme Robotics Ltd")
     with patch("ipo_watcher.gmp_source.fetch_gmp_listing", return_value=["not", "a", "dict"]):
         result = poll_gmp_snapshots(conn)
-    assert result == {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": False}
+    assert result == {
+        "matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": False, "opens_today": [],
+    }
 
 
 def test_poll_gmp_snapshots_aborts_cleanly_on_network_error(conn):
@@ -389,7 +537,9 @@ def test_poll_gmp_snapshots_aborts_cleanly_on_network_error(conn):
         side_effect=requests.ConnectionError("boom"),
     ):
         result = poll_gmp_snapshots(conn)
-    assert result == {"matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True}
+    assert result == {
+        "matched": 0, "unmatched": 0, "skipped_errors": 0, "failed": True, "opens_today": [],
+    }
     assert conn.execute("SELECT COUNT(*) AS n FROM gmp_snapshots").fetchone()["n"] == 0
 
 
@@ -415,3 +565,74 @@ def test_main_returns_false_when_update_alert_send_fails(tmp_path, monkeypatch):
          patch("ipo_watcher.run.send_gmp_update_alerts", return_value=False):
         ok = gmp_source.main()
     assert ok is False
+
+
+def test_main_sends_application_open_alert_when_poll_reports_opens_today(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "main_opens.db")
+    monkeypatch.setattr(gmp_source.config, "DB_PATH", db_path)
+    setup_conn = db.connect(db_path)
+    db.init_db(setup_conn)
+    company_id, _ = db._get_or_create_company(setup_conn, "Acme Robotics Ltd")
+    setup_conn.close()
+
+    poll_result = {
+        "matched": 1, "unmatched": 0, "skipped_errors": 0, "failed": False,
+        "opens_today": [{
+            "company_id": company_id, "company_name": "Acme Robotics Ltd",
+            "gmp_pct": 18.4, "open_date": "2026-11-18",
+        }],
+    }
+    with patch("ipo_watcher.gmp_source.poll_gmp_snapshots", return_value=poll_result), \
+         patch("ipo_watcher.run.send_application_open_alerts", return_value=True) as mock_open_send, \
+         patch("ipo_watcher.run.send_gmp_update_alerts", return_value=True):
+        ok = gmp_source.main()
+    mock_open_send.assert_called_once_with(poll_result["opens_today"])
+    assert ok is True
+
+    verify_conn = db.connect(db_path)
+    assert db.has_notified_application_open(verify_conn, company_id, "2026-11-18") is True
+    verify_conn.close()
+
+
+def test_main_does_not_record_application_open_notification_when_send_fails(tmp_path, monkeypatch):
+    db_path = str(tmp_path / "main_opens_fail.db")
+    monkeypatch.setattr(gmp_source.config, "DB_PATH", db_path)
+    setup_conn = db.connect(db_path)
+    db.init_db(setup_conn)
+    company_id, _ = db._get_or_create_company(setup_conn, "Acme Robotics Ltd")
+    setup_conn.close()
+
+    poll_result = {
+        "matched": 1, "unmatched": 0, "skipped_errors": 0, "failed": False,
+        "opens_today": [{
+            "company_id": company_id, "company_name": "Acme Robotics Ltd",
+            "gmp_pct": 18.4, "open_date": "2026-11-18",
+        }],
+    }
+    with patch("ipo_watcher.gmp_source.poll_gmp_snapshots", return_value=poll_result), \
+         patch("ipo_watcher.run.send_application_open_alerts", return_value=False), \
+         patch("ipo_watcher.run.send_gmp_update_alerts", return_value=True) as mock_update_send:
+        ok = gmp_source.main()
+    assert ok is False
+    # A failed application-open send must not short-circuit the rest of
+    # the cycle — the existing "GMP moved" alert still has to run.
+    mock_update_send.assert_called_once()
+
+    # Not recording on a failed send is what allows the next poll to retry
+    # the alert instead of losing it permanently (the bug a review caught).
+    verify_conn = db.connect(db_path)
+    assert db.has_notified_application_open(verify_conn, company_id, "2026-11-18") is False
+    verify_conn.close()
+
+
+def test_main_does_not_call_application_open_alerts_when_nothing_opened_today(tmp_path, monkeypatch):
+    monkeypatch.setattr(gmp_source.config, "DB_PATH", str(tmp_path / "main_no_opens.db"))
+    poll_result = {
+        "matched": 1, "unmatched": 0, "skipped_errors": 0, "failed": False, "opens_today": [],
+    }
+    with patch("ipo_watcher.gmp_source.poll_gmp_snapshots", return_value=poll_result), \
+         patch("ipo_watcher.run.send_application_open_alerts") as mock_open_send, \
+         patch("ipo_watcher.run.send_gmp_update_alerts", return_value=True):
+        ok = gmp_source.main()
+    mock_open_send.assert_not_called()
+    assert ok is True

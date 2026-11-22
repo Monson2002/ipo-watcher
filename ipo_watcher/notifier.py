@@ -142,3 +142,45 @@ def send_gmp_update_alert(rows):
     return _send_email(
         build_gmp_update_subject(rows), build_gmp_update_body(rows), build_gmp_update_html(rows)
     )
+
+
+def build_application_open_subject(rows):
+    count = len(rows)
+    noun = "IPO" if count == 1 else "IPOs"
+    verb = "opens" if count == 1 else "open"
+    return f"IPO Watcher: {count} {noun} {verb} for bidding today"
+
+
+def _application_open_fragment(r):
+    return f"{r['company_name']} opens for bidding today - GMP at {r['gmp_pct']:.1f}%"
+
+
+def build_application_open_body(rows):
+    lines = [_application_open_fragment(r) for r in rows]
+    return "\n".join(lines).strip() + "\n"
+
+
+def build_application_open_html(rows):
+    cards = []
+    for r in rows:
+        cards.append(f"""
+      <div style="border-bottom:1px solid #e5e7eb;padding:16px 0;">
+        <div style="font-size:16px;font-weight:600;color:#111827;margin:0 0 4px;">{html.escape(r['company_name'])}</div>
+        <div style="font-size:14px;color:#374151;">Opens for bidding today - GMP at {r['gmp_pct']:.1f}%</div>
+      </div>""")
+    count = len(rows)
+    subtitle = f"{count} IPO{'' if count == 1 else 's'} open{'s' if count == 1 else ''} for bidding today"
+    return _HTML_WRAPPER.format(subtitle=subtitle, cards="".join(cards))
+
+
+def send_application_open_alert(rows):
+    """Sends one batched email for all application-window-opens-today
+    rows. Same True/False-on-failure contract as send_alert/
+    send_gmp_update_alert."""
+    if not rows:
+        return True
+    return _send_email(
+        build_application_open_subject(rows),
+        build_application_open_body(rows),
+        build_application_open_html(rows),
+    )

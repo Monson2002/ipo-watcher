@@ -72,6 +72,125 @@ def test_record_gmp_snapshot_stores_close_date_and_is_listed(conn):
     assert db.get_latest_is_listed(conn, company_id) is False
 
 
+def test_init_db_adds_open_date_column_to_pre_existing_gmp_snapshots_table():
+    # Simulates the real production DB: a gmp_snapshots table created
+    # before open_date existed in SCHEMA. CREATE TABLE IF NOT EXISTS is a
+    # no-op against an existing table, so init_db must separately detect
+    # and ALTER TABLE to add the missing column, or every poll crashes
+    # with "table gmp_snapshots has no column named open_date".
+    conn = db.connect(":memory:")
+    conn.execute("""
+        CREATE TABLE companies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            first_seen_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE gmp_snapshots (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id  INTEGER NOT NULL REFERENCES companies(id),
+            gmp_rupees  REAL,
+            gmp_pct     REAL NOT NULL,
+            close_date  TEXT,
+            is_listed   INTEGER,
+            polled_at   TEXT NOT NULL
+        )
+    """)
+    conn.execute(
+        "INSERT INTO companies (name, first_seen_at) VALUES ('Acme Robotics Ltd', '2026-01-01T00:00:00+05:30')"
+    )
+    conn.execute(
+        "INSERT INTO gmp_snapshots (company_id, gmp_pct, polled_at) VALUES (1, 5.0, '2026-01-01T00:00:00+05:30')"
+    )
+    conn.commit()
+
+    db.init_db(conn)
+
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(gmp_snapshots)")}
+    assert "open_date" in cols
+    row = conn.execute("SELECT gmp_pct, open_date FROM gmp_snapshots WHERE id = 1").fetchone()
+    assert row["gmp_pct"] == 5.0
+    assert row["open_date"] is None
+    conn.close()
+
+
+def test_init_db_is_idempotent_when_open_date_column_already_exists(conn):
+    # Calling init_db twice (as every real run does, via db.connect + init_db
+    # each time) must not raise "duplicate column name".
+    db.init_db(conn)
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(gmp_snapshots)")}
+    assert "open_date" in cols
+
+
+def test_record_gmp_snapshot_stores_open_date(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=18.4, open_date="2026-11-18")
+    row = conn.execute(
+        "SELECT open_date FROM gmp_snapshots WHERE company_id = ?", (company_id,)
+    ).fetchone()
+    assert row["open_date"] == "2026-11-18"
+
+
+def test_record_gmp_snapshot_open_date_defaults_to_null(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=5.0)
+    row = conn.execute(
+        "SELECT open_date FROM gmp_snapshots WHERE company_id = ?", (company_id,)
+    ).fetchone()
+    assert row["open_date"] is None
+
+
+def test_has_notified_application_open_returns_false_with_no_prior_notification(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    assert db.has_notified_application_open(conn, company_id, "2026-11-18") is False
+
+
+def test_has_notified_application_open_returns_true_once_recorded(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    db.record_application_open_notification(conn, company_id, "2026-11-18")
+    assert db.has_notified_application_open(conn, company_id, "2026-11-18") is True
+
+
+def test_has_notified_application_open_does_not_match_a_different_open_date(conn):
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    db.record_application_open_notification(conn, company_id, "2026-11-18")
+    assert db.has_notified_application_open(conn, company_id, "2026-11-19") is False
+
+
+def test_has_notified_application_open_does_not_leak_between_companies(conn):
+    company_a, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    company_b, _ = db._get_or_create_company(conn, "Gaurik Fashions Limited")
+    db.record_application_open_notification(conn, company_a, "2026-11-18")
+    assert db.has_notified_application_open(conn, company_b, "2026-11-18") is False
+
+
+def test_has_notified_application_open_is_unaffected_by_unrelated_gmp_snapshots(conn):
+    # Regression for the bug a review caught: recording a GMP snapshot
+    # that happens to carry the same open_date value (days before the
+    # window actually opens) must NOT look like an already-sent
+    # notification. Only record_application_open_notification marks it sent.
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=4.0, open_date="2026-11-18")
+    db.record_gmp_snapshot(conn, company_id, gmp_pct=4.5, open_date="2026-11-18")
+    assert db.has_notified_application_open(conn, company_id, "2026-11-18") is False
+
+
+def test_record_application_open_notification_is_idempotent_per_company_and_open_date(conn):
+    # Defense in depth, matching the filings.dedup_key pattern: a second
+    # INSERT for the same (company_id, open_date) must not raise or create
+    # a duplicate row, even though code-level dedup is also supposed to
+    # prevent this from ever being attempted.
+    company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
+    db.record_application_open_notification(conn, company_id, "2026-11-18")
+    db.record_application_open_notification(conn, company_id, "2026-11-18")
+    count = conn.execute(
+        "SELECT COUNT(*) AS n FROM application_open_notifications WHERE company_id = ? AND open_date = ?",
+        (company_id, "2026-11-18"),
+    ).fetchone()["n"]
+    assert count == 1
+
+
 def test_get_latest_close_date_returns_none_with_no_snapshot(conn):
     company_id, _ = db._get_or_create_company(conn, "Acme Robotics Ltd")
     assert db.get_latest_close_date(conn, company_id) is None

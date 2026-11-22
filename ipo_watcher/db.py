@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS gmp_snapshots (
     gmp_pct     REAL NOT NULL,
     close_date  TEXT,
     is_listed   INTEGER,
+    open_date   TEXT,
     polled_at   TEXT NOT NULL
 );
 
@@ -48,6 +49,16 @@ CREATE TABLE IF NOT EXISTS gmp_notifications (
 );
 
 CREATE INDEX IF NOT EXISTS idx_gmp_notifications_company ON gmp_notifications(company_id);
+
+CREATE TABLE IF NOT EXISTS application_open_notifications (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id  INTEGER NOT NULL REFERENCES companies(id),
+    open_date   TEXT NOT NULL,
+    notified_at TEXT NOT NULL,
+    UNIQUE(company_id, open_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_application_open_notifications_company ON application_open_notifications(company_id);
 """
 
 
@@ -60,7 +71,18 @@ def connect(db_path):
 
 def init_db(conn):
     conn.executescript(SCHEMA)
+    # CREATE TABLE IF NOT EXISTS is a no-op against a table that already
+    # exists, so a new column added to SCHEMA never reaches a real,
+    # already-deployed DB — confirmed live 2026-11-22, the real DB was
+    # missing open_date and every poll would crash on the first INSERT.
+    _ensure_column(conn, "gmp_snapshots", "open_date", "TEXT")
     conn.commit()
+
+
+def _ensure_column(conn, table, column, column_type):
+    cols = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
 
 
 def _now_iso():
@@ -140,19 +162,39 @@ def set_pdf_info(conn, filing_id, pdf_path, pdf_sha256):
     conn.commit()
 
 
-def record_gmp_snapshot(conn, company_id, gmp_pct, gmp_rupees=None, close_date=None, is_listed=None):
+def record_gmp_snapshot(
+    conn, company_id, gmp_pct, gmp_rupees=None, close_date=None, is_listed=None,
+    open_date=None,
+):
     conn.execute(
         """INSERT INTO gmp_snapshots
-           (company_id, gmp_rupees, gmp_pct, close_date, is_listed, polled_at)
-           VALUES (?, ?, ?, ?, ?, ?)""",
+           (company_id, gmp_rupees, gmp_pct, close_date, is_listed, open_date, polled_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
         (
             company_id,
             gmp_rupees,
             gmp_pct,
             close_date,
             None if is_listed is None else int(is_listed),
+            open_date,
             _now_iso(),
         ),
+    )
+    conn.commit()
+
+
+def has_notified_application_open(conn, company_id, open_date):
+    row = conn.execute(
+        "SELECT 1 FROM application_open_notifications WHERE company_id = ? AND open_date = ? LIMIT 1",
+        (company_id, open_date),
+    ).fetchone()
+    return row is not None
+
+
+def record_application_open_notification(conn, company_id, open_date):
+    conn.execute(
+        "INSERT OR IGNORE INTO application_open_notifications (company_id, open_date, notified_at) VALUES (?, ?, ?)",
+        (company_id, open_date, _now_iso()),
     )
     conn.commit()
 

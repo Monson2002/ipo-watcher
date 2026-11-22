@@ -242,6 +242,53 @@ def test_build_gmp_update_html_includes_closing_today_note_only_when_true():
     assert html_body.count("Bidding closes today") == 1
 
 
+APPLICATION_OPEN_ROWS = [
+    {"company_name": "Acme Robotics Ltd", "gmp_pct": 18.4},
+    {"company_name": "Gaurik Fashions Limited", "gmp_pct": 9.0},
+]
+
+
+def test_build_application_open_subject():
+    assert notifier.build_application_open_subject(APPLICATION_OPEN_ROWS) == "IPO Watcher: 2 IPOs open for bidding today"
+    assert notifier.build_application_open_subject(APPLICATION_OPEN_ROWS[:1]) == "IPO Watcher: 1 IPO opens for bidding today"
+
+
+def test_build_application_open_body_shows_company_and_gmp():
+    body = notifier.build_application_open_body(APPLICATION_OPEN_ROWS)
+    assert "Acme Robotics Ltd opens for bidding today - GMP at 18.4%" in body
+    assert "Gaurik Fashions Limited opens for bidding today - GMP at 9.0%" in body
+
+
+def test_build_application_open_html_shows_company_and_gmp():
+    html_body = notifier.build_application_open_html(APPLICATION_OPEN_ROWS)
+    assert "Acme Robotics Ltd" in html_body
+    assert "18.4%" in html_body
+    assert "Gaurik Fashions Limited" in html_body
+    assert "9.0%" in html_body
+
+
+def test_send_application_open_alert_returns_true_and_sends_nothing_when_no_rows():
+    with patch("ipo_watcher.notifier.requests.post") as mock_post:
+        ok = notifier.send_application_open_alert([])
+    assert ok is True
+    mock_post.assert_not_called()
+
+
+def test_send_application_open_alert_posts_to_resend(monkeypatch):
+    monkeypatch.setattr(notifier.config, "RESEND_API_KEY", "re_test_key", raising=False)
+    monkeypatch.setattr(notifier.config, "ALERT_FROM", "onboarding@resend.dev")
+    monkeypatch.setattr(notifier.config, "ALERT_TO", "me@example.com")
+
+    fake_response = MagicMock()
+    fake_response.raise_for_status = MagicMock()
+
+    with patch("ipo_watcher.notifier.requests.post", return_value=fake_response) as mock_post:
+        ok = notifier.send_application_open_alert(APPLICATION_OPEN_ROWS)
+
+    assert ok is True
+    mock_post.assert_called_once()
+
+
 def test_send_gmp_update_alert_returns_true_and_sends_nothing_when_no_rows():
     with patch("ipo_watcher.notifier.requests.post") as mock_post:
         ok = notifier.send_gmp_update_alert([])

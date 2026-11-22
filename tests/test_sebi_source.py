@@ -89,6 +89,30 @@ def test_parse_company_and_type_prefers_rightmost_separator_when_name_contains_o
     assert filing_type == "Addendum to DRHP"
 
 
+def test_parse_company_and_type_handles_underscore_separator():
+    # Real SEBI title: "Chartered Speed Limited_Addendum to the DRHP" —
+    # joined with a bare underscore, no surrounding whitespace at all.
+    from ipo_watcher.sebi_source import _parse_company_and_type
+    company_name, filing_type = _parse_company_and_type(
+        "Chartered Speed Limited_Addendum to the DRHP"
+    )
+    assert company_name == "Chartered Speed Limited"
+    assert filing_type == "Addendum to the DRHP"
+
+
+def test_parse_company_and_type_prefers_separator_before_known_filing_type_keyword():
+    # Real SEBI title: "Sagar Defence Engineering Limited -UDRHP- I" — two
+    # dash separators; the rightmost one ("- I") isn't a real filing type,
+    # but the first ("-UDRHP") is, so it should win despite not being
+    # rightmost.
+    from ipo_watcher.sebi_source import _parse_company_and_type
+    company_name, filing_type = _parse_company_and_type(
+        "Sagar Defence Engineering Limited -UDRHP- I"
+    )
+    assert company_name == "Sagar Defence Engineering Limited"
+    assert filing_type == "UDRHP- I"
+
+
 def test_parse_listing_row_with_nested_anchor_only_captures_outer_row():
     rows = parse_listing(LISTING_FIXTURE)
     assert len(rows) == 4

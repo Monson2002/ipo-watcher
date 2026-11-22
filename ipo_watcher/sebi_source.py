@@ -51,11 +51,41 @@ ROW_RE = re.compile(
 # never mistaken for this separator. The rightmost match wins, matching a
 # company name that itself contains a dash (e.g. "ABC - XYZ Limited -
 # Addendum to DRHP").
-_SEPARATOR_RE = re.compile(r"[-–:]\s+")
+# Bare underscore (no surrounding whitespace needed) added for titles like
+# "Chartered Speed Limited_Addendum to the DRHP" — confirmed live 2026-11-20.
+_SEPARATOR_RE = re.compile(r"[-–:]\s+|_")
+
+# Looser than _SEPARATOR_RE: also matches a separator with whitespace on
+# only one side (e.g. "Limited -UDRHP", space before, none after). Only
+# used to find a split right before a recognized filing-type keyword —
+# never as the general fallback, since it's too permissive to trust blindly
+# (see "Sagar Defence Engineering Limited -UDRHP- I", confirmed 2026-11-22).
+_LOOSE_SEPARATOR_RE = re.compile(r"(?<=\s)[-–:]|[-–:](?=\s)|_")
+
+_KNOWN_FILING_TYPE_PREFIXES = (
+    "rhp", "drhp", "udrhp", "prospectus", "addendum", "corrigendum",
+    "corrigenda", "draft", "offer document", "letter of offer", "scheme",
+)
+
+
+def _looks_like_filing_type(candidate):
+    return candidate.strip().lower().startswith(_KNOWN_FILING_TYPE_PREFIXES)
 
 
 def _parse_company_and_type(visible_text):
     text = visible_text.strip()
+
+    keyword_matches = [
+        m for m in _LOOSE_SEPARATOR_RE.finditer(text)
+        if _looks_like_filing_type(text[m.end() :])
+    ]
+    if keyword_matches:
+        sep = keyword_matches[-1]
+        company_name = text[: sep.start()].strip()
+        filing_type = text[sep.end() :].strip()
+        if company_name and filing_type:
+            return company_name, filing_type
+
     matches = list(_SEPARATOR_RE.finditer(text))
     if matches:
         sep = matches[-1]

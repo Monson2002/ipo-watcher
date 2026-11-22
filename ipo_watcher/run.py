@@ -146,6 +146,13 @@ def send_pending_alert(conn):
         return False
 
 
+def send_application_open_alerts(rows):
+    """Thin wrapper so gmp_source.py's cron entry calls into run.py for
+    alerting (matching send_gmp_update_alerts), keeping gmp_source.py as
+    pure fetch/store."""
+    return notifier.send_application_open_alert(rows)
+
+
 def send_gmp_update_alerts(conn):
     today = datetime.datetime.now(config.IST).date().isoformat()
     rows = []

@@ -452,6 +452,20 @@ def test_send_gmp_update_alerts_includes_closing_today_note_when_close_date_is_t
     conn.close()
 
 
+def test_send_application_open_alerts_forwards_to_notifier_and_returns_true():
+    rows = [{"company_name": "Acme Robotics Ltd", "gmp_pct": 18.4}]
+    with patch("ipo_watcher.run.notifier.send_application_open_alert", return_value=True) as mock_send:
+        ok = run.send_application_open_alerts(rows)
+    mock_send.assert_called_once_with(rows)
+    assert ok is True
+
+
+def test_send_application_open_alerts_forwards_failure():
+    with patch("ipo_watcher.run.notifier.send_application_open_alert", return_value=False):
+        ok = run.send_application_open_alerts([{"company_name": "X", "gmp_pct": 1.0}])
+    assert ok is False
+
+
 def test_send_pending_alert_does_not_mark_notified_on_send_failure(tmp_path):
     conn = db.connect(str(tmp_path / "test2.db"))
     db.init_db(conn)
