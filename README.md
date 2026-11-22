@@ -1,7 +1,12 @@
 # ipo-watcher
 
 Watches SEBI's Public Issues filings (DRHP/RHP/Prospectus/Addenda/Corrigenda)
-and emails an alert when a new one appears.
+and emails an alert when a new one appears. Also polls live Grey Market
+Premium (GMP) data and sends three kinds of follow-up email: GMP first
+becoming available or moving ≥5 percentage points, a one-time "opens for
+bidding today" alert the day an IPO's application window actually opens,
+and a Listing Gain prediction included in the original filing alert once
+GMP data exists.
 
 ## Setup
 

@@ -514,3 +514,162 @@ happened and why*, not the technical detail.
   under-alert on real oscillation (e.g. a spike to +16% that later
   settles back to +11% is still genuine news, but would show as only
   +1pp from a fixed opening baseline). Left as-is.
+
+## 2026-11-01 (continued) — a principal-tester review, and closing its findings
+
+- Had the whole repo reviewed end to end — readmes, code, tests — as a
+  principal software tester would. Found a second, more serious parsing
+  bug than the one fixed earlier today: SEBI's HTML can nest a second,
+  invalid `<a ...>` tag *inside* the outer row link's own `title="..."`
+  attribute (not just after it, which the existing regex already
+  handled). That truncated some titles mid-attribute and corrupted the
+  company name. Fixed `ROW_RE` to also tolerate that case.
+- The review also caught a real gap in the GMP update-alert logic: a
+  company could get notified about a SEBI filing before any GMP data
+  existed for it, and since the baseline table only ever recorded a
+  company once *some* GMP alert had fired, that company could never
+  get a baseline at all — permanently invisible to future "GMP moved"
+  alerts. Fixed by sourcing the baseline-eligible company list from
+  `filings.notified_at` instead, and treating "no baseline yet, but a
+  snapshot now exists" as its own notify-worthy event ("GMP now
+  available at X%") rather than a move to measure. Chose to send one
+  big catch-up email for every company this surfaced, rather than
+  trickling them out.
+- Found that every top-level failure path (bad SEBI response, failed
+  send, malformed GMP payload) was being caught and logged but still
+  returning/exiting 0 — a real failure looked identical to a quiet,
+  uneventful run in GitHub Actions' UI. Made every failure path return
+  `False` and both entry points `sys.exit(1)` on failure, so a broken
+  run now shows up as a red X instead of silence.
+- That fix immediately surfaced a second-order bug: the workflows'
+  "commit and push database" step had no `if: always()`, so a now
+  correctly-failing collector step meant any `notified_at` progress
+  from the part that *did* work never got pushed — confirmed live via
+  two consecutive runs both re-sending the identical 10-filing email.
+  Added `if: always()` to both workflows' commit steps.
+- Also cleaned up CI bloat: `uv sync --no-dev` wasn't enough on its own,
+  since `uv run` does its own implicit sync (including the `dev`
+  group) regardless — confirmed live via a run still downloading
+  scipy/matplotlib/jupyterlab. Added `--no-dev` to the `uv run`
+  invocations too. Moved the research notebook's heavy dependencies
+  into the `dev` group instead of a separate opt-in group, to keep
+  `uv sync` in the research folder giving a working Jupyter kernel
+  (documented behavior) while still keeping CI installs light.
+  Documentation and a stale `smtplib`/"no cloud services" description
+  in `CLAUDE.md` also needed catching up to the Resend/GitHub Actions
+  reality.
+- Verified for real: triggered both workflows manually, accepted one
+  known, explained duplicate email as the cost of confirming the
+  `if: always()` fix actually worked (the fix couldn't be verified any
+  other way without actually causing the exact failure it protects
+  against). Tests: 159 passing at the end of this pass.
+
+## 2026-11 (mid-month) — the SEBI `530 BLOCKED` pagination wall
+
+- Investigated why page ≥2 of SEBI's listing sometimes comes back
+  `530 BLOCKED` instead of data. Systematically ruled out the two
+  cheap hypotheses: sharing a `requests.Session`/cookie jar between the
+  page-1 GET and the AJAX POST (tested live, made no difference — 6/6
+  blocked either way), and request timing. This looks like a WAF/anti-bot
+  rule on that specific AJAX endpoint, independent of both.
+- The one remaining untested lever was full browser-header
+  impersonation (fake Chrome User-Agent + Referer + Origin) to make the
+  request look like a real browser's AJAX call. Declined to pursue
+  this — it's genuine detection evasion against a third-party
+  government site, not legitimate debugging, and said so directly
+  rather than finding a quieter way around it.
+- Left as an accepted, graceful-degradation gap: page 1 (almost always
+  fine) still gets discovered and alerted every run; only overflow past
+  page 1 in a single run could be briefly delayed until SEBI stops
+  blocking. Presented three paths forward (alternate source, accept
+  permanently, something else) — still open.
+- Got a real support question a bit later: a GMP-update email for
+  Crystal Crop Protection Limited that didn't seem to match any
+  "current IPO" listing elsewhere. Traced it through the real database
+  — RHP filed 2026-11-12, discovered and alerted 2026-11-13, first GMP
+  snapshot (and "GMP now available" email) the same afternoon, bidding
+  window closing 2026-11-20 — genuinely correct, not a bug. Turned out
+  the bidding/application window itself didn't open until 2026-11-18;
+  GMP data and the RHP filing both routinely show up several days
+  before applications actually open, which is exactly what happened
+  here.
+
+## 2026-11-22 — still not getting GMP mails: the real cause was corrupted names
+
+- Investigated why SEBI filing emails kept arriving but GMP emails had
+  gone quiet for six straight days. Most of it turned out to be
+  correct, boring behavior: most tracked companies were already listed
+  (permanently excluded from "GMP moved" alerts by design), and the two
+  still-open ones genuinely hadn't moved ≥5 percentage points yet.
+- But two very recent filings (`Chartered Speed Limited`, `Sagar
+  Defence Engineering Limited`) had corrupted company names baked in
+  by the separator-splitting bug: one title used a bare underscore with
+  no surrounding whitespace (`"...Limited_Addendum to the DRHP"`), the
+  other had two dash separators where the existing "rightmost wins"
+  rule picked the wrong one (`"...Limited -UDRHP- I"`). Both meant the
+  GMP matcher's exact-name comparison against IPO Guru's clean names
+  could never succeed — these two IPOs were permanently invisible to
+  the GMP pipeline.
+- Fixed the underscore case directly, then generalized further: the
+  separator-splitting logic now prefers whichever separator is
+  immediately followed by a recognized filing-type keyword
+  (RHP/DRHP/Addendum/etc.), falling back to the old rightmost-wins rule
+  only when none qualify — fixes the ambiguous multi-separator case
+  without touching the already-correct rightmost-wins behavior for
+  genuinely hyphenated company names. Corrected the two already-bad
+  company name rows directly in the live database.
+
+## 2026-11-22 (continued) — an "opens for bidding today" email, and two real bugs a review caught
+
+- First built the wrong thing: a "listed today" email firing the day a
+  stock actually starts trading. Got clarified mid-build that the real
+  ask was the opposite end of the timeline — an email the day an IPO's
+  *application window* opens, which is exactly the gap the Crystal Crop
+  investigation surfaced. Reverted the listed-today code cleanly
+  (nothing of it had been committed) and designed the right feature
+  from scratch under a fresh spec.
+- Built it: `gmp_source.py` now reads `open_date` from IPO Guru's
+  response (a field it already sent but this project never used) and
+  flags a company the first poll where `open_date` matches today.
+  Implemented inline, task by task, with a TDD discipline throughout.
+- A fresh reviewer (dispatched after finishing all four tasks) found
+  two real Critical bugs, both confirmed by direct reproduction before
+  fixing:
+  - The new `open_date` column was added to `SCHEMA` the way this
+    project has always added columns — but `CREATE TABLE IF NOT EXISTS`
+    is a no-op against a table that's already deployed, which this one
+    has been since 2026-10-25. The real production database was
+    missing the column; every poll would have crashed on the first
+    `INSERT`. Fixed with an idempotent `ALTER TABLE` check in `init_db`.
+  - The dedup logic checked whether any *existing* snapshot already
+    carried a given `open_date` — but IPO Guru reports `open_date` days
+    before the window opens (exactly like Crystal Crop's GMP showing up
+    five days early), so that check was already true long before the
+    real trigger day. In the realistic case, the alert would have fired
+    essentially never. Replaced it with a dedicated notifications table
+    keyed on whether the alert was actually *sent*, written only after
+    a successful send — which also fixed a related bug for free: a
+    failed send no longer loses the alert permanently.
+- My own second look (asked to review the diff before committing) found
+  a third, smaller gap the fix introduced: two entries for the same
+  company within a single poll response could both pass the new
+  success-gated check and duplicate a line in the email, since that
+  check only updates after the whole poll finishes. Added a per-poll
+  guard alongside the cross-poll one.
+- A second, independent review (after committing nothing yet) found no
+  further code bugs, but caught that the spec and `CLAUDE.md` still
+  described the original, rejected design, and that the staged
+  `data/ipo_watcher.db` was now 141 commits stale relative to
+  `origin/main` — all automated poll commits from CI continuing to run
+  in the background while this was being built. Committing it would
+  have silently discarded that history. Unstaged the DB, rewrote the
+  docs to describe what actually shipped (with an explicit note on why
+  the original design was wrong), and added a `UNIQUE` constraint plus
+  one more pinning test while already in there.
+- Committed in two separate commits (the SEBI parser fix, then this
+  feature) once the permission system actually allowed a commit to go
+  through — redid the company-name database correction against the
+  now-current, 147-commits-newer database (the first attempt was still
+  staged against a now-ancient copy), and dropped the one leftover git
+  stash after confirming everything in it was either already committed
+  or no longer safely reusable. Tests: 189 passing.
